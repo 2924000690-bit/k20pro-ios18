@@ -1,6 +1,6 @@
 # Wi-Fi on iOS 18 (xnu-11215): bringing the Helium stack over
 
-Status: **stage A in progress** — the glue is staged (0290/0291) and builds through its first API deltas; see §Stage A log. The only working Wi-Fi stack for raphael is in the iOS 16.5 tree
+Status: **stage A done** — the iOS 16 glue compiles and links in xnu-11215 (run 43635362684); stage B (the ath10k object) is next. See §Stage A log. The only working Wi-Fi stack for raphael is in the iOS 16.5 tree
 (`repo`, xnu-8796.121.2, branch `ios16-raphael-cleanup` / `raphael-bringup`), verified there with 2.4 GHz
 WPA2 and 5 GHz WPA3 SAE plus real traffic. The iOS 18 tree (`jacky-ios18`, xnu-11215.81.4) has no Wi-Fi at
 all (bergamota's `beryllium_wlan.c` is a WCN3990/BT bring-up ladder, not a driver), so Wi-Fi on iOS 18 means
@@ -107,5 +107,11 @@ Everything below is committed to `main`; the CI run is the `raphael kernel (xnu-
     `hakios_spmi_arbiter_lock`.
   - `hakios.net.c`, `hakios.sta.c`, `hakios.apple80211.c`, `hakios.qmi.c` and `hakios.wlfw.c` compiled
     without a single error, which is better than expected for a 8796 → 11215 jump.
-- Second build (run 43634170733) is the one that should reach the link; what it reports next is
-  recorded here.
+- Second build (run 43634170733) compiled every file of the glue and failed only at the link, on two
+  symbols the iOS 16 port took from `xnuloader`: `loader_log_putc()` (the loader's log ring; every line
+  already goes to `printf()`) and `loader_return()` (`wifi_return=1`). The shim answers both, the second
+  by panicking with that explanation (`5054337`).
+- Third build (run 43635362684) **succeeded**: `errors.txt` is empty, the kernel links and packages.
+  Stage A is therefore done: the whole stack is inside the kernel, inert until `wifi=1`/`wifi_step=N`.
+- Not yet validated at runtime: the phone was not connected to the build host when the kernel was
+  ready, so nothing has been booted from this run. `wifi=1` has never executed on iOS 18.
