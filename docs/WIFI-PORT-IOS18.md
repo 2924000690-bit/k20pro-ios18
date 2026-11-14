@@ -1,6 +1,6 @@
 # Wi-Fi on iOS 18 (xnu-11215): bringing the Helium stack over
 
-Status: **plan + stage A not started**. The only working Wi-Fi stack for raphael is in the iOS 16.5 tree
+Status: **stage A in progress** — the glue is staged (0290/0291) and builds through its first API deltas; see §Stage A log. The only working Wi-Fi stack for raphael is in the iOS 16.5 tree
 (`repo`, xnu-8796.121.2, branch `ios16-raphael-cleanup` / `raphael-bringup`), verified there with 2.4 GHz
 WPA2 and 5 GHz WPA3 SAE plus real traffic. The iOS 18 tree (`jacky-ios18`, xnu-11215.81.4) has no Wi-Fi at
 all (bergamota's `beryllium_wlan.c` is a WCN3990/BT bring-up ladder, not a driver), so Wi-Fi on iOS 18 means
@@ -85,3 +85,27 @@ driver/drvdata reset). This fix belongs in `repo` (it is testable there) and sho
 3. Stage C runtime: ICNSS/MPSS first, then QRTR/GLINK, then the driver, then scan/join; each stage is a
    boot with `wifi_step=N`.
 4. `-19` off/on fix in `repo`, verified there, then carried over.
+
+## Stage A log
+
+Everything below is committed to `main`; the CI run is the `raphael kernel (xnu-11215, iOS 18)` workflow.
+
+- `992d4d4` — the eight sources and six headers (as in `repo`), [`0290-stage-hakios-wifi.sh`](../xnu/patches-11215/0290-stage-hakios-wifi.sh)
+  installs them, [`0291-hakios-wifi-files.patch`](../xnu/patches-11215/0291-hakios-wifi-files.patch) registers them in
+  `bsd/conf/files` and calls `hakios_wifi_init()` after `devfs_kernel_mount()`. `hakios.wlfw_ath11k.h` is
+  not carried: `hakios.wlfw.c` falls back to its "not built in" stubs when the header is absent.
+- `hakios.wifi_shim.c` supplies the iOS 16 neighbours this tree does not have: `hakios_is_raphael()`
+  (`sweet_board_raphael()` here), the SPMI arbiter lock, `hakios_image_file()`/`mdevgetkernelrange()`
+  (firmware of the small image, empty for now), `HakiosWLANStart()` and the `gic_v3_spi_*` calls the
+  LinuxKPI IRQ layer needs (they fail until `osfmk/arm64/gic_v3_irq.c` is ported in Stage C).
+- First build (run 43632853827, 13m40s) reached compilation and stopped on four deltas, all fixed in
+  `0ab0771`:
+  - `kmem_alloc()`/`kmem_alloc_contig()` and `KMA_KOBJECT`/`KMA_ZERO`/`KMA_DATA` moved to
+    `<vm/vm_kern_xnu.h>`; `hakios.wifi.c` and `hakios.lx.c` include it (`vm/vm_kern.h` no longer has them).
+  - C17 does not allow a declaration after a label: the PD mapper's `respond:` needed a statement.
+  - the shim's SPMI lock cannot be named `hakios_spmi_lock` (that is the function in the header); it is
+    `hakios_spmi_arbiter_lock`.
+  - `hakios.net.c`, `hakios.sta.c`, `hakios.apple80211.c`, `hakios.qmi.c` and `hakios.wlfw.c` compiled
+    without a single error, which is better than expected for a 8796 → 11215 jump.
+- Second build (run 43634170733) is the one that should reach the link; what it reports next is
+  recorded here.
