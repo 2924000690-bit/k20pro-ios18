@@ -13,6 +13,7 @@
  * which is what the LinuxKPI layer handles when the radio is started without
  * them (Stage C ports the real GICv3 driver).
  */
+#include <kern/debug.h>
 #include <kern/locks.h>
 #include <libkern/libkern.h>
 #include <mach/vm_types.h>
@@ -82,6 +83,25 @@ HakiosWLANStart(__unused const char *interface, __unused const uint8_t *address)
 void
 hakios_virtio_net_init(void)
 {
+}
+
+/* ---- the loader the iOS 16 port ran under (xnuloader) ----
+ *
+ * That loader kept a log ring the kernel could write to from any core, and it
+ * could take the machine back after a test run (wifi_return=1). The iOS 18 boot
+ * chain has neither: every line already goes to printf(), and there is nothing
+ * to return to. Returning is therefore a panic -- it is only reached when the
+ * run is asked for the loader on purpose.
+ */
+void
+loader_log_putc(__unused char c)
+{
+}
+
+void
+loader_return(void)
+{
+	panic("hakios: wifi_return=1 asked for the loader, which this boot chain does not have");
 }
 
 /* ---- the SNOC's interrupts (osfmk/arm64/gic_v3_irq.c on iOS 16) ----
