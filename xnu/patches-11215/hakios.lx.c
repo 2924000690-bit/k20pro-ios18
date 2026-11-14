@@ -30,6 +30,7 @@
 #include <sys/systm.h>
 #include <vm/memory_types.h>
 #include <vm/vm_kern.h>
+#include <vm/vm_kern_xnu.h>	/* kmem_alloc() with KMA_* flags: moved out of vm_kern.h after xnu-8796 */
 
 extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys_addr, vm_size_t size, unsigned int flags);
 extern uint64_t kvtophys(vm_offset_t va);       /* pmap_paddr_t */

@@ -171,6 +171,7 @@
 #include <sys/stat.h>
 #include <sys/systm.h>
 #include <vm/vm_kern.h>
+#include <vm/vm_kern_xnu.h>	/* kmem_alloc() with KMA_* flags: moved out of vm_kern.h after xnu-8796 */
 
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
 extern vm_offset_t ml_io_map_wcomb(vm_offset_t phys_addr, vm_size_t size);
@@ -4017,7 +4018,7 @@ pd_mapper_request(__unused void *context, uint32_t node, uint32_t port, const vo
 		memcpy(reply + list_at + 1, &list_size, 2);
 	}
 	printf("wifi: PD mapper lookup %.*s: %u domains, offset %u, returned %u\n", (int)name_size, name, total, first, count);
-respond:
+respond:;       /* (a declaration may not follow a label in C17) */
 	uint16_t payload_size = (uint16_t)(used - 7);
 	memcpy(reply + 5, &payload_size, 2);
 	qrtr_send(pd_mapper_port, node, port, reply, used);

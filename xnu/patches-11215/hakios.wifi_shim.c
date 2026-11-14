@@ -37,18 +37,18 @@ hakios_is_raphael(void)
  * exist so the code stays the same when the buttons driver arrives.
  */
 static LCK_GRP_DECLARE(hakios_spmi_lck_grp, "hakios_spmi");
-static LCK_SPIN_DECLARE(hakios_spmi_lock, &hakios_spmi_lck_grp);
+static LCK_SPIN_DECLARE(hakios_spmi_arbiter_lock, &hakios_spmi_lck_grp);
 
 void
 hakios_spmi_lock(void)
 {
-	lck_spin_lock(&hakios_spmi_lock);
+	lck_spin_lock(&hakios_spmi_arbiter_lock);
 }
 
 void
 hakios_spmi_unlock(void)
 {
-	lck_spin_unlock(&hakios_spmi_lock);
+	lck_spin_unlock(&hakios_spmi_arbiter_lock);
 }
 
 /* ---- the small image's fw/ (bsd/dev/hakios.image.c on iOS 16) ----
