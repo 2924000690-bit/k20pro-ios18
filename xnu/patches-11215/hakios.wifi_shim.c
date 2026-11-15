@@ -185,6 +185,16 @@ hakios_image_file(const char *dir, const char *name, uint64_t *size, __unused in
 SYSCTL_INT(_kern, OID_AUTO, sweet_wifi_firmware_lookups, CTLFLAG_RD,
     &hakios_wifi_firmware_lookups, 0, "how often the Wi-Fi glue asked for a firmware file");
 
+/*
+ * The step the Wi-Fi start is on (bsd/dev/hakios.wifi.c): 0 before it, 1 while it is taking the
+ * radio's memory, 6..15 that step, 100 + N if step N failed, 255 when it got through. The start
+ * runs before the log link is up, so this is how userland sees where it is.
+ */
+extern uint32_t hakios_wifi_step_running;
+
+SYSCTL_INT(_kern, OID_AUTO, sweet_wifi_step, CTLFLAG_RD,
+    (int *)&hakios_wifi_step_running, 0, "the Wi-Fi start's current step");
+
 /* bsd/dev/hakios.image.c exports this over bsd/dev/memdev.c; memdev.c in 11215
  * has mdevlookup() only. Nothing here can map a disk image's bytes yet. */
 int

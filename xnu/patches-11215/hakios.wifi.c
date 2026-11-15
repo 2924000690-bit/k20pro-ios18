@@ -197,6 +197,9 @@ LCK_MTX_DECLARE(hakios_smmu_lock, &wifi_lock_group);
 
 static uint32_t last_step, pause_ms = 2200, fine, watch_seconds = 3;
 static uint32_t step;                   /* the one being performed */
+/* The step the Wi-Fi start is on, for kern.sweet_wifi_step: the start runs before the log
+ * link is up, so this is the only way to see from userland where it is (or that it stopped). */
+uint32_t hakios_wifi_step_running;
 static volatile bool raphael_wlan_crashed;
 static uint32_t new_from;               /* the first of the steps that have not been seen to work: they wait */
 static char last_write[96] = "nothing written";
@@ -5446,6 +5449,8 @@ whole_thread(__unused void *parameter, __unused wait_result_t result)
 	uint64_t began = now_us();
 	uint32_t done = 0, failed = 0;
 
+	hakios_wifi_step_running = 1;           /* (until a step sets it: preparing) */
+	printf("wifi: whole start: the radio's memory is being taken\n");
 	/* the memory the radio is shown is one piece: taken now, while that is easy to find */
 	if (hakios_lx_prepare() != 0) {
 		tell("wifi: NO MEMORY FOR THE RADIO in one piece: it is not brought up\n");
@@ -5454,6 +5459,8 @@ whole_thread(__unused void *parameter, __unused wait_result_t result)
 	}
 	for (unsigned i = 0; i < sizeof(needed) && failed == 0; i++) {
 		step = needed[i];
+		hakios_wifi_step_running = step;
+		printf("wifi: step %u begins\n", step);
 		if (hakios_is_raphael() && step < 6) continue;
 		if (step == 15) {
 			tell("wifi: the radio's DSP is up and linked, %llu ms in; now the driver\n", (now_us() - began) / 1000);
@@ -5465,6 +5472,7 @@ whole_thread(__unused void *parameter, __unused wait_result_t result)
 		}
 	}
 	last_step = needed[sizeof(needed) - 1];
+	hakios_wifi_step_running = failed != 0 ? 100 + failed : 255;   /* (the start is over) */
 	if (failed == 0) {
 		tell("wifi: THE RADIO IS UP, %llu.%llu s after the kernel began on it\n", (now_us() - began) / 1000000,
 		    (now_us() - began) / 100000 % 10);
