@@ -58,17 +58,15 @@ hakios_wifi_reserve_pool(void)
 	if (hakios_rmtfs_pool != NULL) {
 		return;
 	}
-	if (max_valid_low_ppnum == PPNUM_MAX) {
-		max_valid_low_ppnum = (ppnum_t)(max_valid_dma_address >> PAGE_SHIFT);
-	}
-	if (max_valid_low_ppnum == PPNUM_MAX || max_valid_low_ppnum == 0) {
-		max_valid_low_ppnum = (ppnum_t)(0x80000000ull >> PAGE_SHIFT);
-	}
+	/*
+	 * XNU arm64 has no platform setup for this DMA ceiling (the x86 setup does it).
+	 * Keep the kernel's DMA low-page pool below 4 GiB, reserve enough pages for RMTFS
+	 * plus headroom, and ask the same contiguous allocator used by KMA_LOMEM.
+	 */
+	max_valid_dma_address = 0x100000000ull;
+	max_valid_low_ppnum = (ppnum_t)(max_valid_dma_address >> PAGE_SHIFT);
 	if (vm_lopage_free_limit < (size >> PAGE_SHIFT) + 1024) {
 		vm_lopage_free_limit = (uint32_t)(size >> PAGE_SHIFT) + 1024;
-	}
-	if (max_valid_low_ppnum > (ppnum_t)(0x100000000ull >> PAGE_SHIFT)) {
-		max_valid_low_ppnum = (ppnum_t)(0x100000000ull >> PAGE_SHIFT);
 	}
 	vm_lopage_lowater = (size >> PAGE_SHIFT) / 2;
 	vm_lopage_needed = TRUE;
@@ -76,7 +74,7 @@ hakios_wifi_reserve_pool(void)
 	printf("wifi: RMTFS allocator: max_dma=%#llx max_low_ppn=%#x low_needed=%d low_free=%u limit=%u\n",
 	    (unsigned long long)max_valid_dma_address, max_valid_low_ppnum, vm_lopage_needed,
 	    vm_lopage_free_count, vm_lopage_free_limit);
-	if (kmem_alloc_contig(kernel_map, &address, size, 0, max_valid_low_ppnum, 0,
+	if (kmem_alloc_contig(kernel_map, &address, size, 0, max_valid_low_ppnum - 1, 0,
 	    KMA_KOBJECT | KMA_ZERO | KMA_DATA | KMA_LOMEM, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
 		printf("wifi: no RMTFS pool: low contiguous allocation failed for %u pages (%#x bytes), low free=%u limit=%u cpm=%u/%u\n",
 		    (unsigned)(size >> PAGE_SHIFT), (unsigned)size, vm_lopage_free_count, vm_lopage_free_limit,
