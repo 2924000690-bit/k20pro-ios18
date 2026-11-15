@@ -149,3 +149,26 @@ Xcode's iPhoneOS SDK there (`4e6bd1b`); and the object's interface headers are t
 
 The kernel now contains the real driver: `lx_start()` resolves to ath10k.o's strong definition instead of
 `hakios.lx.c`'s weak fallback. Nothing runs it yet — that needs the firmware (Stage C).
+
+## Stage C — where the firmware comes from
+
+The iOS 16 stack read `fw/` out of the small image xnuloader kept in memory. This boot chain has no such
+image, so the files live on the root volume, where the GPU's already do:
+`/usr/local/share/firmware/wifi/<name>`. `hakios_image_file()` in `hakios.wifi_shim.c` reads them from
+there, keeps each name in a small cache (the glue asks for the same file once per segment and never frees
+the result), and gives `0-rmtfs-ram` physically contiguous memory below 4 GiB — the RMTFS pool is not
+firmware, `mpss_storage_prepare()` hands its physical range to the modem page by page.
+
+Getting the files (this phone's own, never from anywhere else, never committed):
+
+1. Reboot into recovery (`sweetreboot recovery`), which has a root shell.
+2. `mount -t vfat -o ro /dev/block/by-name/modem /mnt/m` — the modem partition is FAT16 and holds
+   `image/`: `modem.mdt`, `modem.b00..b31`, `wlanmdsp.mbn`, `bd_f11cn.bin`.
+3. Pull those, plus the four NV partitions (`dd if=/dev/block/by-name/{modemst1,modemst2,fsg,fsc}`).
+4. Generate the two files that are not firmware, exactly as `repo/README.md` does: `firmware-5.bin`
+   (ath10k's metadata) and `0-rmtfs-ram` (0x310000 zero bytes).
+5. [`tools/raphael/push-wifi-fw.sh`](../tools/raphael/push-wifi-fw.sh) copies the directory to
+   `/usr/local/share/firmware/wifi/` on the phone (tar over ssh: the phone's sshd has no sftp).
+
+Boot arguments for the run: `wifi=1 wifi_bdf=bd_f11cn.bin`, plus the staging knobs
+(`wifi_step=N`, `wifi_smmu=2`, `wifi_keep=1`, `wifi_wait=10`, `wifi_listen=15`) as needed.
