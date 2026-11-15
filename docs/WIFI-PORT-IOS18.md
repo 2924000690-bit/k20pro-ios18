@@ -185,3 +185,17 @@ Boot arguments for the run: `wifi=1 wifi_bdf=bd_f11cn.bin`, plus the staging kno
   step as it begins and reports it in `kern.sweet_wifi_step` (1 while the radio's memory is taken,
   6..15 that step, 100+N if step N failed, 255 when it got through), and `wifi_delay=S` holds the start
   back S seconds so its lines reach the log.
+
+#### What the log then showed (with `wifi_delay`)
+
+The delay works: a `wifi=1 wifi_loud=1 wifi_delay=90` boot streams every line. The start gets through
+step 6 (all 31 `modem.bNN` segments read from the root volume, 77,492,785 bytes written and read back
+identical), step 7 (the APCS mailbox is already open: magic `MAIL`, version 1), step 8 (TrustZone accepts
+the DSP header and the image's place) and step 9 (the image is in the DSP's memory, 0 words differ).
+
+Step 10 creates the SMP2P item (428) and the two GLINK items (478, 479) in the private SMEM partition
+(`0x860e3000`, 0x7c000 bytes) and then prepares the RMTFS pool. Its four NV snapshots are read and are the
+expected sizes (8 MiB × 3, 256 KiB). The pool was the problem: `kmem_alloc_contig()` with `KMA_LOMEM`
+alone placed it at physical `0x155858000` (5.7 GiB), and `mpss_storage_prepare()` refuses anything above
+`UINT32_MAX - RMTFS_BYTES`. `max_pnum` — the page-number ceiling that check is about — is now passed
+explicitly, which is what keeps it below 4 GiB.
