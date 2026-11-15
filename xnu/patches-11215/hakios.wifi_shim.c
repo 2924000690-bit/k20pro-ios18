@@ -36,11 +36,6 @@
 #define HAKIOS_RMTFS_POOL       (0x310000u)
 
 static uint8_t *hakios_rmtfs_pool;
-extern boolean_t vm_lopage_needed;
-extern uint32_t vm_lopage_free_count;
-extern uint32_t vm_lopage_free_limit;
-extern uint32_t vm_lopage_lowater;
-extern boolean_t vm_lopage_refill;
 extern uint64_t kvtophys(vm_offset_t va);
 
 /*
@@ -59,6 +54,12 @@ hakios_wifi_reserve_pool(void)
 
 	if (hakios_rmtfs_pool != NULL) {
 		return;
+	}
+	if (max_valid_low_ppnum == PPNUM_MAX) {
+		max_valid_low_ppnum = (ppnum_t)(max_valid_dma_address >> PAGE_SHIFT);
+	}
+	if (max_valid_low_ppnum == PPNUM_MAX || max_valid_low_ppnum == 0) {
+		max_valid_low_ppnum = (ppnum_t)(0x80000000ull >> PAGE_SHIFT);
 	}
 	if (vm_lopage_free_limit < (size >> PAGE_SHIFT) + 1024) {
 		vm_lopage_free_limit = (uint32_t)(size >> PAGE_SHIFT) + 1024;
