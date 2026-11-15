@@ -27,6 +27,7 @@
 #include <vm/vm_kern.h>
 #include <vm/vm_kern_xnu.h>
 #include <vm/vm_page.h>
+#include <arm/pmap/pmap_internal.h>
 #include <sys/types.h>
 #include <sys/hakios.input.h>
 #include <dev/sweet_board.h>
@@ -63,17 +64,39 @@ hakios_wifi_reserve_pool(void)
 	 * Keep the kernel's DMA low-page pool below 4 GiB, reserve enough pages for RMTFS
 	 * plus headroom, and ask the same contiguous allocator used by KMA_LOMEM.
 	 */
+	/* arm64 device DMA is constrained to the first 4 GiB (e.g. DWC3/UFS). */
 	max_valid_dma_address = 0x100000000ull;
 	max_valid_low_ppnum = (ppnum_t)(max_valid_dma_address >> PAGE_SHIFT);
+	vm_lopage_needed = TRUE;
+	vm_lopage_refill = TRUE;
+	vm_lopage_free_limit = MAX(vm_lopage_free_limit, (uint32_t)(size >> PAGE_SHIFT) + 1024);
+	vm_lopage_lowater = (size >> PAGE_SHIFT) / 2;
+	/* Populate low pages from the global free queue while preserving its VM accounting. */
+	vm_free_page_lock_spin();
+	for (unsigned color = 0; color < vm_colors && vm_lopage_free_count < vm_lopage_free_limit; color++) {
+		vm_page_t page;
+		vm_page_queue_iterate(&vm_page_queue_free[color].qhead, page, vmp_pageq) {
+			if (VM_PAGE_GET_PHYS_PAGE(page) >= max_valid_low_ppnum) continue;
+			vm_page_queue_remove(&vm_page_queue_free[color].qhead, page, vmp_pageq);
+			VM_PAGE_ZERO_PAGEQ_ENTRY(page);
+			page->vmp_q_state = VM_PAGE_ON_FREE_LOPAGE_Q;
+			page->vmp_lopage = TRUE;
+			vm_page_queue_enter_first(&vm_lopage_queue_free, page, vmp_pageq);
+			vm_lopage_free_count++;
+			vm_page_free_count--;
+		}
+	}
+	vm_free_page_unlock();
 	if (vm_lopage_free_limit < (size >> PAGE_SHIFT) + 1024) {
 		vm_lopage_free_limit = (uint32_t)(size >> PAGE_SHIFT) + 1024;
 	}
 	vm_lopage_lowater = (size >> PAGE_SHIFT) / 2;
 	vm_lopage_needed = TRUE;
 	vm_lopage_refill = TRUE;
-	printf("wifi: RMTFS allocator: max_dma=%#llx max_low_ppn=%#x low_needed=%d low_free=%u limit=%u\n",
+	printf("wifi: RMTFS allocator: max_dma=%#llx max_low_ppn=%#x low_needed=%d low_free=%u limit=%u avail=%#llx..%#llx\n",
 	    (unsigned long long)max_valid_dma_address, max_valid_low_ppnum, vm_lopage_needed,
-	    vm_lopage_free_count, vm_lopage_free_limit);
+	    vm_lopage_free_count, vm_lopage_free_limit, (unsigned long long)avail_start,
+	    (unsigned long long)avail_end);
 	if (kmem_alloc_contig(kernel_map, &address, size, 0, max_valid_low_ppnum - 1, 0,
 	    KMA_KOBJECT | KMA_ZERO | KMA_DATA | KMA_LOMEM, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
 		printf("wifi: no RMTFS pool: low contiguous allocation failed for %u pages (%#x bytes), low free=%u limit=%u cpm=%u/%u\n",
