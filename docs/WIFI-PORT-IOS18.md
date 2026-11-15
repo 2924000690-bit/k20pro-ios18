@@ -123,3 +123,21 @@ Everything below is committed to `main`; the CI run is the `raphael kernel (xnu-
     missing from the RAM image" return. So the whole stack is reached and inert, exactly as intended.
   - Wi-Fi itself still does nothing: the firmware (`wpss.mdt`, `wlanmdsp.mbn`, `firmware-5.bin`,
     `bd_f11cn.bin`) is not in an iOS 18 boot image yet. That, and the ath10k object, are Stage B/C.
+
+## Stage B wiring (in progress)
+
+`44fcd2b` carries `wifi/lx` (49 files) and `tools/mk-ath10k.py` over from `repo`, with one change: the
+object compiles against `xnu/patches-11215/hakios.lx.h` and `hakios.qmi.h` — the same files 0290 stages
+into the kernel — so driver and kernel cannot disagree about the interface.
+
+CI on the macOS runner:
+
+- `xnu-deps/host/bin/ld64` and `nm` are wrappers around `xcrun -f ld` / `xcrun -f nm` (mk-ath10k.py
+  expects those two names, as the iOS 16 tree's `xnu-deps/setup.sh` makes them there).
+- `mk-ath10k.py` fetches Linux 7.0.14 and FreeBSD 15.1 (cached under `xnu-deps/build/ath10k`) and writes
+  `xnu-deps/build/ath10k/out/ath10k.o`.
+- [`0292-link-extra-objects.patch`](../xnu/patches-11215/0292-link-extra-objects.patch) teaches
+  `makedefs/MakeInc.kernel` to append `KERNEL_EXTRA_OBJECTS` to the kernel's non-LTO file list, and to
+  fail the link when a named object is missing. The Build step sets it to the ath10k object.
+- `hakios.lx.c` keeps weak `lx_prepare`/`lx_start`/`lx_stop`/`lx_transmit`, so the real object takes over
+  without removing the stubs (a build without the object still links).
