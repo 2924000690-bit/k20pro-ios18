@@ -1,6 +1,6 @@
 # Wi-Fi on iOS 18 (xnu-11215): bringing the Helium stack over
 
-Status: **stage A done** — the iOS 16 glue compiles and links in xnu-11215 (run 43635362684); stage B (the ath10k object) is next. See §Stage A log. The only working Wi-Fi stack for raphael is in the iOS 16.5 tree
+Status: **stage A done and validated on the phone** — the iOS 16 glue compiles, links and runs in xnu-11215; a `wifi=1` boot reaches the firmware step (run 43673761041, `kern.sweet_wifi_firmware_lookups = 1`). Stage B (the ath10k object) is next. See §Stage A log. The only working Wi-Fi stack for raphael is in the iOS 16.5 tree
 (`repo`, xnu-8796.121.2, branch `ios16-raphael-cleanup` / `raphael-bringup`), verified there with 2.4 GHz
 WPA2 and 5 GHz WPA3 SAE plus real traffic. The iOS 18 tree (`jacky-ios18`, xnu-11215.81.4) has no Wi-Fi at
 all (bergamota's `beryllium_wlan.c` is a WCN3990/BT bring-up ladder, not a driver), so Wi-Fi on iOS 18 means
@@ -113,5 +113,13 @@ Everything below is committed to `main`; the CI run is the `raphael kernel (xnu-
   by panicking with that explanation (`5054337`).
 - Third build (run 43635362684) **succeeded**: `errors.txt` is empty, the kernel links and packages.
   Stage A is therefore done: the whole stack is inside the kernel, inert until `wifi=1`/`wifi_step=N`.
-- Not yet validated at runtime: the phone was not connected to the build host when the kernel was
-  ready, so nothing has been booted from this run. `wifi=1` has never executed on iOS 18.
+- `f32a117` counts the shim's firmware lookups (`kern.sweet_wifi_firmware_lookups`), because the
+  stack's first lines print before the log link is up and so never reach the captured log. Run
+  43673761041 built, and the phone booted it with `wifi=1`:
+  - `kern.bootargs` carries `wifi=1` (iBoot passes it through), the kernel boots normally,
+    `kern.sweet_fb` still reads `hz=59`, and `kern.sweet_wifi_firmware_lookups` is **1**.
+  - That one lookup is the glue's own sequence: `hakios_wifi_init()` → `hakios_is_raphael()` true →
+    `image_file("modem.mdt")` in `hakios.wifi.c` → the shim has no firmware to give → the "firmware is
+    missing from the RAM image" return. So the whole stack is reached and inert, exactly as intended.
+  - Wi-Fi itself still does nothing: the firmware (`wpss.mdt`, `wlanmdsp.mbn`, `firmware-5.bin`,
+    `bd_f11cn.bin`) is not in an iOS 18 boot image yet. That, and the ath10k object, are Stage B/C.
