@@ -27,12 +27,16 @@
 #include <vm/vm_kern.h>
 #include <vm/vm_kern_xnu.h>
 #include <vm/vm_page.h>
+#include <vm/vm_page_internal.h>
 #include <sys/types.h>
 #include <sys/hakios.input.h>
 #include <dev/sweet_board.h>
 
 extern uint32_t vm_lopages_allocated_cpm_failed;
 extern uint32_t vm_lopages_allocated_cpm_success;
+extern vm_page_t vm_page_queue_free[];
+extern vm_offset_t avail_start;
+extern vm_offset_t avail_end;
 
 /* ---- the board (bsd/dev/hakios.input.c on iOS 16) ---- */
 
