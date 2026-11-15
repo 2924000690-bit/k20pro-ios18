@@ -189,7 +189,11 @@ jobs:
           printf '#!/bin/sh\nexec "%s" "$@"\n' "$(xcrun -f ld)" > xnu-deps/host/bin/ld64
           printf '#!/bin/sh\nexec "%s" "$@"\n' "$(xcrun -f nm)" > xnu-deps/host/bin/nm
           chmod +x xnu-deps/host/bin/ld64 xnu-deps/host/bin/nm
-          python3 tools/mk-ath10k.py
+          # mk-ath10k.py's SAE half is compiled against $THEOS/sdks/iPhoneOS16.5.sdk; the runner has
+          # that SDK in Xcode, under its own name, so point THEOS at a directory with the alias.
+          mkdir -p "$RUNNER_TEMP/theos/sdks"
+          ln -sfn "$(xcrun -sdk iphoneos --show-sdk-path)" "$RUNNER_TEMP/theos/sdks/iPhoneOS16.5.sdk"
+          THEOS="$RUNNER_TEMP/theos" python3 tools/mk-ath10k.py
           ls -l xnu-deps/build/ath10k/out/ath10k.o
 
       - name: Build
