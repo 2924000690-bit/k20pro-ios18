@@ -28,6 +28,8 @@ on:
     branches: [main]
     paths:
       - "xnu/patches-11215/**"
+      - "wifi/lx/**"
+      - "tools/mk-ath10k.py"
       - ".github/workflows/xnu.yml"
 
 concurrency:
@@ -171,11 +173,32 @@ jobs:
           ccache -z
           ccache -p | grep -E 'base_dir|cache_dir|max_size|sloppiness|compiler_check|hash_dir|compression ' || true
 
+      # Stage B: the Wi-Fi driver object. It is built outside xnu because it needs Linux 7.0.14's
+      # ath10k, FreeBSD 15.1's LinuxKPI and the SDK's cctools; 0292 links KERNEL_EXTRA_OBJECTS.
+      - name: Restore ath10k build cache
+        uses: actions/cache@v4
+        with:
+          path: xnu-deps/build/ath10k
+          key: ath10k-${{ env.CACHE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/mk-ath10k.py', 'wifi/lx/**') }}
+
+      - name: Build the Wi-Fi driver object (ath10k.o)
+        run: |
+          brew install ripgrep || true
+          mkdir -p xnu-deps/host/bin
+          # mk-ath10k.py links with Apple's ld and reads symbols with nm (repack/ld64 semantics)
+          printf '#!/bin/sh\nexec "%s" "$@"\n' "$(xcrun -f ld)" > xnu-deps/host/bin/ld64
+          printf '#!/bin/sh\nexec "%s" "$@"\n' "$(xcrun -f nm)" > xnu-deps/host/bin/nm
+          chmod +x xnu-deps/host/bin/ld64 xnu-deps/host/bin/nm
+          python3 tools/mk-ath10k.py
+          ls -l xnu-deps/build/ath10k/out/ath10k.o
+
       - name: Build
         working-directory: dxb
         env:
           # keep going after errors so one run reports every compile failure
           MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
+          # 0292 appends these to the kernel's link (the ath10k object built above)
+          KERNEL_EXTRA_OBJECTS: ${{ github.workspace }}/xnu-deps/build/ath10k/out/ath10k.o
         # the full log is hundreds of MB of warnings: keep it as a file, summarise the errors
         run: |
           set +e
