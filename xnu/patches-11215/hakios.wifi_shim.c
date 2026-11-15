@@ -14,12 +14,16 @@
  * them (Stage C ports the real GICv3 driver).
  */
 #include <kern/debug.h>
+#include <kern/kalloc.h>
 #include <kern/locks.h>
 #include <libkern/libkern.h>
 #include <mach/vm_types.h>
 #include <sys/errno.h>
 #include <sys/systm.h>
 #include <sys/sysctl.h>
+#include <sys/uio.h>
+#include <sys/vnode.h>
+#include <sys/vnode_internal.h>
 #include <sys/types.h>
 #include <sys/hakios.input.h>
 #include <dev/sweet_board.h>
@@ -55,18 +59,102 @@ hakios_spmi_unlock(void)
 
 static int hakios_wifi_firmware_lookups;
 
-/* ---- the small image's fw/ (bsd/dev/hakios.image.c on iOS 16) ----
+/* ---- the firmware the glue asks for (bsd/dev/hakios.image.c on iOS 16) ----
  *
- * The firmware is staged into the boot image under fw-wifi/ for Stage C; until
- * that reader is ported the glue is told there is no file, which is a case it
- * already handles (it says so and fails the step).
+ * The iOS 16 port read fw/ out of the small image xnuloader kept in memory.
+ * This boot chain has no such image, so the files live on the root volume,
+ * where the GPU's already do (docs/GPU_KERNEL.md, scripts/gpu-fw-push.sh):
+ *
+ *     /usr/local/share/firmware/wifi/<name>
+ *
+ * The caller wants a buffer it can memcpy from and never gives it back, and it
+ * asks for the same file once per segment, so read each name once and keep it.
+ * The firmware is a few megabytes and lives as long as the kernel does; that is
+ * the same lifetime the small image had.
  */
-const uint8_t *
-hakios_image_file(__unused const char *dir, __unused const char *name, __unused uint64_t *size,
-    __unused int *disk_out)
+#define HAKIOS_WIFI_FW_DIR      "/usr/local/share/firmware/wifi/"
+#define HAKIOS_WIFI_FW_MAX      (32u << 20)
+#define HAKIOS_WIFI_FW_CACHE    64
+
+static LCK_GRP_DECLARE(hakios_fw_lck_grp, "hakios_wifi_fw");
+static LCK_MTX_DECLARE(hakios_fw_lock, &hakios_fw_lck_grp);
+
+static struct {
+	char            name[64];
+	const uint8_t  *data;
+	uint64_t        size;
+} hakios_fw_cache[HAKIOS_WIFI_FW_CACHE];
+static unsigned hakios_fw_cached;
+
+static const uint8_t *
+hakios_fw_read(const char *name, uint64_t *size)
 {
+	char path[160];
+	vnode_t vp = NULLVP;
+	off_t file_size = 0;
+	int error, resid = 0;
+	vfs_context_t ctx = vfs_context_kernel();
+
+	if (snprintf(path, sizeof(path), "%s%s", HAKIOS_WIFI_FW_DIR, name) >= (int)sizeof(path)) {
+		return NULL;
+	}
+	if (vnode_lookup(path, 0, &vp, ctx) != 0 || vp == NULLVP) {
+		return NULL;
+	}
+	error = vnode_size(vp, &file_size, ctx);
+	if (error != 0 || file_size <= 0 || (uint64_t)file_size > HAKIOS_WIFI_FW_MAX) {
+		vnode_put(vp);
+		return NULL;
+	}
+	uint8_t *buffer = kalloc_data((vm_size_t)file_size, Z_WAITOK | Z_ZERO);
+	if (buffer == NULL) {
+		vnode_put(vp);
+		return NULL;
+	}
+	error = vn_rdwr(UIO_READ, vp, (caddr_t)buffer, (int)file_size, 0, UIO_SYSSPACE,
+	    IO_NODELOCKED | IO_UNIT, vfs_context_ucred(ctx), &resid, vfs_context_proc(ctx));
+	vnode_put(vp);
+	if (error != 0 || resid != 0) {
+		kfree_data(buffer, (vm_size_t)file_size);
+		return NULL;
+	}
+	*size = (uint64_t)file_size;
+	printf("wifi: firmware %s: %lld bytes from %s\n", name, (long long)file_size, path);
+	return buffer;
+}
+
+const uint8_t *
+hakios_image_file(const char *dir, const char *name, uint64_t *size, __unused int *disk_out)
+{
+	const uint8_t *data = NULL;
+
 	hakios_wifi_firmware_lookups++;
-	return NULL;
+	if (dir == NULL || name == NULL || size == NULL || strcmp(dir, "fw") != 0 ||
+	    strlen(name) >= sizeof(hakios_fw_cache[0].name)) {
+		return NULL;
+	}
+	lck_mtx_lock(&hakios_fw_lock);
+	for (unsigned i = 0; i < hakios_fw_cached; i++) {
+		if (strcmp(hakios_fw_cache[i].name, name) == 0) {
+			*size = hakios_fw_cache[i].size;
+			data = hakios_fw_cache[i].data;
+			break;
+		}
+	}
+	if (data == NULL && hakios_fw_cached < HAKIOS_WIFI_FW_CACHE) {
+		uint64_t read_size = 0;
+		data = hakios_fw_read(name, &read_size);
+		if (data != NULL) {
+			strlcpy(hakios_fw_cache[hakios_fw_cached].name, name,
+			    sizeof(hakios_fw_cache[0].name));
+			hakios_fw_cache[hakios_fw_cached].data = data;
+			hakios_fw_cache[hakios_fw_cached].size = read_size;
+			hakios_fw_cached++;
+			*size = read_size;
+		}
+	}
+	lck_mtx_unlock(&hakios_fw_lock);
+	return data;
 }
 
 /*
