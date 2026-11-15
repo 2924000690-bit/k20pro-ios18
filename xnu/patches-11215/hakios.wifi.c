@@ -3644,21 +3644,38 @@ mpss_storage_prepare(void)
 		uint64_t size = 0;
 		const uint8_t *data = image_file(files[i], &size);
 		uint32_t expected = i == 3 ? 0x40000 : 0x800000;
-		if (!data || size != expected || !(rmtfs.files[i].data = kalloc_data(size, Z_WAITOK))) return false;
+		if (!data || size != expected || !(rmtfs.files[i].data = kalloc_data(size, Z_WAITOK))) {
+			printf("wifi: %u: RMTFS: %s: data %p, %llu bytes (want %u)\n", step, files[i], data, size, expected);
+			return false;
+		}
 		memcpy(rmtfs.files[i].data, data, size); rmtfs.files[i].size = (uint32_t)size;
 	}
 	/* The loader owns the static RAM image; this plain file reserves DMA pages below 4 GiB without borrowing firmware RAM. */
+	printf("wifi: %u: RMTFS: pool %p, %llu bytes, cached %#lx\n", step, pool, pool_bytes, (unsigned long)cached);
 	if (!pool || pool_bytes < RMTFS_BYTES + 3 * PAGE_SIZE || cached < (vm_offset_t)pool ||
-	    cached - (vm_offset_t)pool > pool_bytes - RMTFS_BYTES - PAGE_SIZE) return false;
+	    cached - (vm_offset_t)pool > pool_bytes - RMTFS_BYTES - PAGE_SIZE) {
+		printf("wifi: %u: RMTFS: the pool's size or place will not do\n", step);
+		return false;
+	}
 	rmtfs.physical = kvtophys(cached);
-	if (rmtfs.physical > UINT32_MAX - RMTFS_BYTES || (rmtfs.physical & PAGE_MASK)) return false;
+	if (rmtfs.physical > UINT32_MAX - RMTFS_BYTES || (rmtfs.physical & PAGE_MASK)) {
+		printf("wifi: %u: RMTFS: physical %#llx is not below 4 GiB or not page aligned\n", step, rmtfs.physical);
+		return false;
+	}
 	for (vm_offset_t offset = 0; offset < RMTFS_BYTES; offset += PAGE_SIZE) {
-		if (kvtophys(cached + offset) != rmtfs.physical + offset) return false;
+		if (kvtophys(cached + offset) != rmtfs.physical + offset) {
+			printf("wifi: %u: RMTFS: not contiguous: page %#lx is at %#llx, expected %#llx\n", step, (unsigned long)offset,
+			    kvtophys(cached + offset), rmtfs.physical + offset);
+			return false;
+		}
 	}
 	for (vm_offset_t at = cached; at < cached + RMTFS_BYTES; at += 64) __asm__ volatile ("dc civac, %0" : : "r" (at));
 	settle();
 	rmtfs.memory = ml_io_map_unmappable(rmtfs.physical, RMTFS_BYTES, VM_WIMG_WCOMB);
-	if (!rmtfs.memory) return false;
+	if (!rmtfs.memory) {
+		printf("wifi: %u: RMTFS: no mapping for %u bytes at %#llx\n", step, RMTFS_BYTES, rmtfs.physical);
+		return false;
+	}
 	bzero((void *)rmtfs.memory, RMTFS_BYTES);
 	settle();
 	printf("wifi: RMTFS reserved RAM: physical %#llx, %u bytes; grant before MPSS start\n", rmtfs.physical, RMTFS_BYTES);
