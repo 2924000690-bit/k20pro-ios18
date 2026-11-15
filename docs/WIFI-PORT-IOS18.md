@@ -1,6 +1,6 @@
 # Wi-Fi on iOS 18 (xnu-11215): bringing the Helium stack over
 
-Status: **stage A done and validated on the phone** — the iOS 16 glue compiles, links and runs in xnu-11215; a `wifi=1` boot reaches the firmware step (run 43673761041, `kern.sweet_wifi_firmware_lookups = 1`). Stage B (the ath10k object) is next. See §Stage A log. The only working Wi-Fi stack for raphael is in the iOS 16.5 tree
+Status: **stage A done and validated on the phone** — the iOS 16 glue compiles, links and runs in xnu-11215; a `wifi=1` boot reaches the firmware step (run 43673761041, `kern.sweet_wifi_firmware_lookups = 1`). the ath10k object is built in CI and linked into the kernel (run 43675647584). Stage C (firmware + runtime) is next. See §Stage A log and §Stage B. The only working Wi-Fi stack for raphael is in the iOS 16.5 tree
 (`repo`, xnu-8796.121.2, branch `ios16-raphael-cleanup` / `raphael-bringup`), verified there with 2.4 GHz
 WPA2 and 5 GHz WPA3 SAE plus real traffic. The iOS 18 tree (`jacky-ios18`, xnu-11215.81.4) has no Wi-Fi at
 all (bergamota's `beryllium_wlan.c` is a WCN3990/BT bring-up ladder, not a driver), so Wi-Fi on iOS 18 means
@@ -124,7 +124,7 @@ Everything below is committed to `main`; the CI run is the `raphael kernel (xnu-
   - Wi-Fi itself still does nothing: the firmware (`wpss.mdt`, `wlanmdsp.mbn`, `firmware-5.bin`,
     `bd_f11cn.bin`) is not in an iOS 18 boot image yet. That, and the ath10k object, are Stage B/C.
 
-## Stage B wiring (in progress)
+## Stage B — the driver object
 
 `44fcd2b` carries `wifi/lx` (49 files) and `tools/mk-ath10k.py` over from `repo`, with one change: the
 object compiles against `xnu/patches-11215/hakios.lx.h` and `hakios.qmi.h` — the same files 0290 stages
@@ -141,3 +141,11 @@ CI on the macOS runner:
   fail the link when a named object is missing. The Build step sets it to the ath10k object.
 - `hakios.lx.c` keeps weak `lx_prepare`/`lx_start`/`lx_stop`/`lx_transmit`, so the real object takes over
   without removing the stubs (a build without the object still links).
+
+Result: run 43675647584 built `ath10k.o` (975,243 bytes) and linked it — `errors.txt` empty, the run green.
+Two things the first attempt needed: the SAE half wants `$THEOS/sdks/iPhoneOS16.5.sdk`, so the step aliases
+Xcode's iPhoneOS SDK there (`4e6bd1b`); and the object's interface headers are the patch series' own
+(`tools/mk-ath10k.py` names `xnu/patches-11215/hakios.lx.h`).
+
+The kernel now contains the real driver: `lx_start()` resolves to ath10k.o's strong definition instead of
+`hakios.lx.c`'s weak fallback. Nothing runs it yet — that needs the firmware (Stage C).
