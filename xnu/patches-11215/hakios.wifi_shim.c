@@ -27,7 +27,6 @@
 #include <vm/vm_kern.h>
 #include <vm/vm_kern_xnu.h>
 #include <vm/vm_page.h>
-#include <vm/vm_page_internal.h>
 #include <sys/types.h>
 #include <sys/hakios.input.h>
 #include <dev/sweet_board.h>
