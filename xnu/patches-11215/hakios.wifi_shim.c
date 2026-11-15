@@ -31,6 +31,9 @@
 #include <sys/hakios.input.h>
 #include <dev/sweet_board.h>
 
+extern uint32_t vm_lopages_allocated_cpm_failed;
+extern uint32_t vm_lopages_allocated_cpm_success;
+
 /* ---- the board (bsd/dev/hakios.input.c on iOS 16) ---- */
 
 #define HAKIOS_RMTFS_POOL       (0x310000u)
