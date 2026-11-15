@@ -64,13 +64,17 @@ hakios_wifi_reserve_pool(void)
 	if (vm_lopage_free_limit < (size >> PAGE_SHIFT) + 1024) {
 		vm_lopage_free_limit = (uint32_t)(size >> PAGE_SHIFT) + 1024;
 	}
+	if (max_valid_low_ppnum > (ppnum_t)(0x100000000ull >> PAGE_SHIFT)) {
+		max_valid_low_ppnum = (ppnum_t)(0x100000000ull >> PAGE_SHIFT);
+	}
 	vm_lopage_lowater = (size >> PAGE_SHIFT) / 2;
 	vm_lopage_needed = TRUE;
 	vm_lopage_refill = TRUE;
 	if (kmem_alloc_contig(kernel_map, &address, size, 0, 0, 0,
 	    KMA_KOBJECT | KMA_ZERO | KMA_DATA | KMA_LOMEM, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
-		printf("wifi: no RMTFS pool: low contiguous allocation failed for %u pages (%#x bytes), low free=%u\n",
-		    (unsigned)(size >> PAGE_SHIFT), (unsigned)size, vm_lopage_free_count);
+		printf("wifi: no RMTFS pool: low contiguous allocation failed for %u pages (%#x bytes), low free=%u limit=%u cpm=%u/%u\n",
+		    (unsigned)(size >> PAGE_SHIFT), (unsigned)size, vm_lopage_free_count, vm_lopage_free_limit,
+		    vm_lopages_allocated_cpm_success, vm_lopages_allocated_cpm_failed);
 		return;
 	}
 	hakios_rmtfs_pool = (uint8_t *)address;
