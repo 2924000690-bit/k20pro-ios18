@@ -168,6 +168,7 @@
 #include <sys/hakios.qmi.h>
 #include <sys/hakios.qrtr.h>
 #include <sys/hakios.sta.h>
+#include <sys/proc.h>
 #include <sys/stat.h>
 #include <sys/systm.h>
 #include <vm/vm_kern.h>
@@ -5450,6 +5451,17 @@ whole_thread(__unused void *parameter, __unused wait_result_t result)
 	uint32_t done = 0, failed = 0;
 
 	hakios_wifi_step_running = 1;           /* (until a step sets it: preparing) */
+	/*
+	 * wifi_delay=S: wait S seconds before the first step. The steps run while the system starts,
+	 * before the log link is up, so their lines would be lost; with the delay they arrive.
+	 */
+	{
+		uint32_t delay_s = 0;
+		if (PE_parse_boot_argn("wifi_delay", &delay_s, sizeof(delay_s)) && delay_s != 0) {
+			printf("wifi: the start waits %u s, so that its log arrives\n", delay_s);
+			tsleep((void *)&whole_thread, PRIBIO, "wifi-delay", (int)(delay_s * hz));
+		}
+	}
 	printf("wifi: whole start: the radio's memory is being taken\n");
 	/* the memory the radio is shown is one piece: taken now, while that is easy to find */
 	if (hakios_lx_prepare() != 0) {
