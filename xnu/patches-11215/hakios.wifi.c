@@ -5459,7 +5459,7 @@ whole_thread(__unused void *parameter, __unused wait_result_t result)
 		uint32_t delay_s = 0;
 		if (PE_parse_boot_argn("wifi_delay", &delay_s, sizeof(delay_s)) && delay_s != 0) {
 			printf("wifi: the start waits %u s, so that its log arrives\n", delay_s);
-			tsleep((void *)&whole_thread, PRIBIO, "wifi-delay", (int)(delay_s * hz));
+			tsleep((void *)&whole_thread, PRIBIO, "wifi-delay", (int)(delay_s * 100));  /* hz is 100 in this kernel */
 		}
 	}
 	printf("wifi: whole start: the radio's memory is being taken\n");
