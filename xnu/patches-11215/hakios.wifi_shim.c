@@ -32,10 +32,50 @@
 
 /* ---- the board (bsd/dev/hakios.input.c on iOS 16) ---- */
 
+/*
+ * The RMTFS pool (0x310000 bytes) has to sit below 4 GiB in one piece. Taken
+ * late it is not to be had: at step 10, 90 s into the boot, the low memory has
+ * no such run left (kmem_alloc_contig() with a max_pnum ceiling returned
+ * nothing). Take it while the kernel is still starting: hakios_is_raphael() is
+ * the first thing the Wi-Fi start asks, before any of the firmware is read.
+ */
+#define HAKIOS_RMTFS_POOL       (0x310000u)
+
+static uint8_t *hakios_rmtfs_pool;
+
+extern uint64_t kvtophys(vm_offset_t va);
+
+static void
+hakios_wifi_reserve_pool(void)
+{
+	vm_offset_t address = 0;
+	vm_size_t size = round_page(HAKIOS_RMTFS_POOL);
+	ppnum_t ceiling = (ppnum_t)((0x100000000ull - size) >> PAGE_SHIFT);
+
+	if (hakios_rmtfs_pool != NULL) {
+		return;
+	}
+	if (kmem_alloc_contig(kernel_map, &address, size, 0, ceiling, 0,
+	    KMA_KOBJECT | KMA_ZERO | KMA_DATA | KMA_LOMEM, VM_KERN_MEMORY_IOKIT) == KERN_SUCCESS) {
+		hakios_rmtfs_pool = (uint8_t *)address;
+		printf("wifi: RMTFS pool reserved: %u bytes at %#lx (physical %#llx)\n", HAKIOS_RMTFS_POOL,
+		    (unsigned long)address, kvtophys(address));
+	} else {
+		printf("wifi: no RMTFS pool: %u bytes below 4 GiB in one piece were not to be had\n", HAKIOS_RMTFS_POOL);
+	}
+}
+
 int
 hakios_is_raphael(void)
 {
-	return sweet_board_raphael() ? 1 : 0;
+	static bool prepared;
+	int raphael = sweet_board_raphael() ? 1 : 0;
+
+	if (raphael && !prepared) {
+		prepared = true;
+		hakios_wifi_reserve_pool();
+	}
+	return raphael;
 }
 
 /* ---- the SPMI arbiter (bsd/dev/hakios.buttons.c on iOS 16) ----
@@ -91,6 +131,18 @@ static unsigned hakios_fw_cached;
 static const uint8_t *
 hakios_fw_read(const char *name, uint64_t *size)
 {
+	if (strcmp(name, "0-rmtfs-ram") == 0) {
+		/* Zeros, not firmware: the pool taken above, if there is one. */
+		if (hakios_rmtfs_pool == NULL) {
+			hakios_wifi_reserve_pool();
+		}
+		if (hakios_rmtfs_pool != NULL) {
+			*size = HAKIOS_RMTFS_POOL;
+			return hakios_rmtfs_pool;
+		}
+		/* fall through to the file, which the contig allocation below may still place low */
+	}
+
 	char path[160];
 	vnode_t vp = NULLVP;
 	off_t file_size = 0;
