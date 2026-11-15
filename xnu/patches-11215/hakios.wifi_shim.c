@@ -27,7 +27,6 @@
 #include <vm/vm_kern.h>
 #include <vm/vm_kern_xnu.h>
 #include <vm/vm_page.h>
-#include <vm/vm_page_internal.h>
 #include <sys/types.h>
 #include <sys/hakios.input.h>
 #include <dev/sweet_board.h>
@@ -75,7 +74,8 @@ hakios_wifi_reserve_pool(void)
 	vm_lopage_free_limit = MAX(vm_lopage_free_limit, (uint32_t)(size >> PAGE_SHIFT) + 1024);
 	vm_lopage_lowater = (size >> PAGE_SHIFT) / 2;
 	/* Populate low pages from the global free queue while preserving its VM accounting. */
-	vm_free_page_lock_spin();
+	vm_page_lockspin_queues();
+	lck_mtx_lock_spin(&vm_page_queue_free_lock);
 	for (unsigned color = 0; color < vm_colors && vm_lopage_free_count < vm_lopage_free_limit; color++) {
 		vm_page_t page;
 		vm_page_queue_iterate(&vm_page_queue_free[color].qhead, page, vmp_pageq) {
@@ -89,7 +89,8 @@ hakios_wifi_reserve_pool(void)
 			vm_page_free_count--;
 		}
 	}
-	vm_free_page_unlock();
+	lck_mtx_unlock(&vm_page_queue_free_lock);
+	vm_page_unlock_queues();
 	if (vm_lopage_free_limit < (size >> PAGE_SHIFT) + 1024) {
 		vm_lopage_free_limit = (uint32_t)(size >> PAGE_SHIFT) + 1024;
 	}
