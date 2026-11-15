@@ -24,6 +24,8 @@
 #include <sys/uio.h>
 #include <sys/vnode.h>
 #include <sys/vnode_internal.h>
+#include <vm/vm_kern.h>
+#include <vm/vm_kern_xnu.h>
 #include <sys/types.h>
 #include <sys/hakios.input.h>
 #include <dev/sweet_board.h>
@@ -106,7 +108,23 @@ hakios_fw_read(const char *name, uint64_t *size)
 		vnode_put(vp);
 		return NULL;
 	}
-	uint8_t *buffer = kalloc_data((vm_size_t)file_size, Z_WAITOK | Z_ZERO);
+	uint8_t *buffer;
+	if (strcmp(name, "0-rmtfs-ram") == 0) {
+		/*
+		 * The RMTFS pool is not firmware: the glue takes its physical address and hands the
+		 * range to the modem, page by page, so it must be physically contiguous and below
+		 * 4 GiB (hakios.wifi.c's mpss_storage_prepare() checks both).
+		 */
+		vm_offset_t address = 0;
+		if (kmem_alloc_contig(kernel_map, &address, round_page((vm_size_t)file_size), 0, 0, 0,
+		    KMA_KOBJECT | KMA_ZERO | KMA_DATA | KMA_LOMEM, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
+			vnode_put(vp);
+			return NULL;
+		}
+		buffer = (uint8_t *)address;
+	} else {
+		buffer = kalloc_data((vm_size_t)file_size, Z_WAITOK | Z_ZERO);
+	}
 	if (buffer == NULL) {
 		vnode_put(vp);
 		return NULL;
