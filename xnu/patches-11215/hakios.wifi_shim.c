@@ -116,8 +116,11 @@ hakios_fw_read(const char *name, uint64_t *size)
 		 * 4 GiB (hakios.wifi.c's mpss_storage_prepare() checks both).
 		 */
 		vm_offset_t address = 0;
-		if (kmem_alloc_contig(kernel_map, &address, round_page((vm_size_t)file_size), 0, 0, 0,
-		    KMA_KOBJECT | KMA_ZERO | KMA_DATA | KMA_LOMEM, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
+		vm_size_t rounded = round_page((vm_size_t)file_size);
+		/* max_pnum is the page-number ceiling: the last page of the range must end below 4 GiB. */
+		ppnum_t ceiling = (ppnum_t)((0x100000000ull - rounded) >> PAGE_SHIFT);
+		if (kmem_alloc_contig(kernel_map, &address, rounded, 0, ceiling, 0,
+		    KMA_KOBJECT | KMA_ZERO | KMA_DATA, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
 			vnode_put(vp);
 			return NULL;
 		}
