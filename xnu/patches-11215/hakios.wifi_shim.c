@@ -19,6 +19,7 @@
 #include <mach/vm_types.h>
 #include <sys/errno.h>
 #include <sys/systm.h>
+#include <sys/sysctl.h>
 #include <sys/types.h>
 #include <sys/hakios.input.h>
 #include <dev/sweet_board.h>
@@ -52,6 +53,8 @@ hakios_spmi_unlock(void)
 	lck_spin_unlock(&hakios_spmi_arbiter_lock);
 }
 
+static int hakios_wifi_firmware_lookups;
+
 /* ---- the small image's fw/ (bsd/dev/hakios.image.c on iOS 16) ----
  *
  * The firmware is staged into the boot image under fw-wifi/ for Stage C; until
@@ -62,8 +65,19 @@ const uint8_t *
 hakios_image_file(__unused const char *dir, __unused const char *name, __unused uint64_t *size,
     __unused int *disk_out)
 {
+	hakios_wifi_firmware_lookups++;
 	return NULL;
 }
+
+/*
+ * How often the glue has asked for a firmware file. A boot with wifi=1 runs the
+ * first steps before the log link is up, so its lines are not in the captured
+ * log; this says from userland that the stack was reached at all.
+ *
+ *     sysctl kern.sweet_wifi_firmware_lookups
+ */
+SYSCTL_INT(_kern, OID_AUTO, sweet_wifi_firmware_lookups, CTLFLAG_RD,
+    &hakios_wifi_firmware_lookups, 0, "how often the Wi-Fi glue asked for a firmware file");
 
 /* bsd/dev/hakios.image.c exports this over bsd/dev/memdev.c; memdev.c in 11215
  * has mdevlookup() only. Nothing here can map a disk image's bytes yet. */
