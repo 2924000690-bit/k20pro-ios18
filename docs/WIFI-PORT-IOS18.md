@@ -172,3 +172,16 @@ Getting the files (this phone's own, never from anywhere else, never committed):
 
 Boot arguments for the run: `wifi=1 wifi_bdf=bd_f11cn.bin`, plus the staging knobs
 (`wifi_step=N`, `wifi_smmu=2`, `wifi_keep=1`, `wifi_wait=10`, `wifi_listen=15`) as needed.
+
+### Stage C — first runs
+
+- The root-volume reader works: with the files in place a `wifi=1` boot reads them (`kern.sweet_wifi_firmware_lookups`
+  goes from 1 to 33), and the system still boots and runs.
+- The start itself does not get far: `kern.sweet_wifi_step` reads **110** — step 10 (`step_our_item`, the
+  SMP2P item in the private SMEM partition the DSP shares) did not get through. Steps 6 (firmware), 7, 8
+  and 9 did.
+- Nothing of that was in the log, because a `wifi=1` start runs during `bsd_init`, before the log link is
+  up, and the first `tell()` only comes at step 15. Two knobs now make it visible: the start prints each
+  step as it begins and reports it in `kern.sweet_wifi_step` (1 while the radio's memory is taken,
+  6..15 that step, 100+N if step N failed, 255 when it got through), and `wifi_delay=S` holds the start
+  back S seconds so its lines reach the log.
