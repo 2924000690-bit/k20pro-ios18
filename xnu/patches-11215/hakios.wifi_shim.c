@@ -42,6 +42,7 @@ extern uint64_t kvtophys(vm_offset_t va);
 
 static uint8_t *hakios_rmtfs_pool;
 extern uint64_t kvtophys(vm_offset_t va);
+extern void vm_page_reset_contiguous_cursor(boolean_t lowmem);
 
 /*
  * The device's Wi-Fi/modem DMA path accepts only 32-bit physical addresses.
@@ -60,16 +61,12 @@ hakios_wifi_reserve_pool(void)
 	if (hakios_rmtfs_pool != NULL) {
 		return;
 	}
-	/*
-	 * A previous high-DMA allocation can leave the contiguous-page scan cursor in the
-	 * high part of vm_pages[]. Reset the low-memory cursor before requesting this
-	 * 3 MiB pool, then keep the ceiling on every attempt.
-	 */
-	vm_page_reset_contiguous_cursor(TRUE);
+	/* The WLAN modem's RMTFS DMA descriptors have a 32-bit physical address. */
 	max_valid_dma_address = 0x100000000ull;
 	max_valid_low_ppnum = (ppnum_t)(max_valid_dma_address >> PAGE_SHIFT);
 	vm_lopage_needed = TRUE;
 	vm_lopage_refill = TRUE;
+	vm_page_reset_contiguous_cursor(TRUE);
 	if (kmem_alloc_contig(kernel_map, &address, size, 0, max_valid_low_ppnum - 1, 0,
 	    KMA_KOBJECT | KMA_ZERO | KMA_DATA | KMA_LOMEM, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
 		printf("wifi: no RMTFS pool: low contiguous allocation failed for %u pages (%#x bytes), low free=%u limit=%u cpm=%u/%u\n",

@@ -12,19 +12,26 @@ ceiling. No VM queue internals are exposed to bsd/dev.
 diff --git a/osfmk/vm/vm_page.h b/osfmk/vm/vm_page.h
 --- a/osfmk/vm/vm_page.h
 +++ b/osfmk/vm/vm_page.h
-@@ -1170,6 +1170,10 @@
+@@ -1164,8 +1164,10 @@
+ extern boolean_t        vm_lopage_needed;
+ extern uint32_t         vm_lopage_free_count;
+ extern uint32_t         vm_lopage_free_limit;
+ extern uint32_t         vm_lopage_lowater;
+ extern boolean_t        vm_lopage_refill;
+ extern uint64_t         max_valid_dma_address;
  extern ppnum_t          max_valid_low_ppnum;
-+
 +/* Restart the contiguous page allocator's search at vm_pages[0]. */
 +extern void             vm_page_reset_contiguous_cursor(boolean_t lowmem);
-+
+ 
  /*
   * Prototypes for functions exported by this module.
   */
 diff --git a/osfmk/vm/vm_resident.c b/osfmk/vm/vm_resident.c
 --- a/osfmk/vm/vm_resident.c
 +++ b/osfmk/vm/vm_resident.c
-@@ -6293,6 +6293,18 @@
+@@ -6291,7 +6291,22 @@
+  * physically-contiguous pages ?
+  */
  #define VM_PAGE_FIND_CONTIGUOUS_CAN_STEAL 1
  
  static unsigned int vm_page_find_contiguous_last_idx = 0, vm_page_lomem_find_contiguous_last_idx = 0;
@@ -43,7 +50,6 @@ diff --git a/osfmk/vm/vm_resident.c b/osfmk/vm/vm_resident.c
 +		vm_page_find_contiguous_last_idx = 0;
 +	}
 +}
-+
  #if DEBUG
  int vm_page_find_contig_debug = 0;
  #endif
