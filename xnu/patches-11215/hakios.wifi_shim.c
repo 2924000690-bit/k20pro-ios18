@@ -33,7 +33,6 @@
 
 extern uint32_t vm_lopages_allocated_cpm_failed;
 extern uint32_t vm_lopages_allocated_cpm_success;
-extern void vm_page_reset_contiguous_cursor(boolean_t lowmem);
 extern uint64_t kvtophys(vm_offset_t va);
 
 /* ---- the board (bsd/dev/hakios.input.c on iOS 16) ---- */
@@ -42,42 +41,51 @@ extern uint64_t kvtophys(vm_offset_t va);
 
 static uint8_t *hakios_rmtfs_pool;
 extern uint64_t kvtophys(vm_offset_t va);
-extern void vm_page_reset_contiguous_cursor(boolean_t lowmem);
 
 /*
- * The device's Wi-Fi/modem DMA path accepts only 32-bit physical addresses.
- * KMA_LOMEM pages are fed through vm_page_grablo() only when the VM low-page
- * reserve is enabled. Set its reserve before allocating; pageout fills the
- * queue from pages below max_valid_low_ppnum, which is the same pool KMA_LOMEM
- * uses throughout the kernel. Doing this here reserves the pool before the
- * Wi-Fi firmware and DSP memory are loaded.
+ * The RMTFS pool is not firmware: mpss_storage_prepare() hands its physical
+ * range to the modem page by page, so it must be physically contiguous and
+ * below 4 GiB. On this board xnu's managed DRAM window is 0x140000000 and up
+ * (chosen/dram-base), so no page of it can ever satisfy that; the low 4 GiB is
+ * the region the firmware and the two DSPs use, which this kernel already maps
+ * directly (SMEM at 0x86000000, the modem image at 0x8e000000).
+ *
+ * The modem's reserved window there runs to 0x9ae00000 and the image ends at
+ * 0x97600000, so the pool is taken from the tail of that window, just before
+ * its end. wifi_rmtfs_pa= overrides the address if a probe says otherwise.
  */
+#define HAKIOS_RMTFS_POOL       (0x310000u)
+#define HAKIOS_RMTFS_PA         (0x9a000000ull)
+
 static void
 hakios_wifi_reserve_pool(void)
 {
-	vm_offset_t address = 0;
+	uint64_t physical = HAKIOS_RMTFS_PA;
 	vm_size_t size = round_page(HAKIOS_RMTFS_POOL);
+	uint32_t override = 0;
 
 	if (hakios_rmtfs_pool != NULL) {
 		return;
 	}
-	/* The WLAN modem's RMTFS DMA descriptors have a 32-bit physical address. */
-	max_valid_dma_address = 0x100000000ull;
-	max_valid_low_ppnum = (ppnum_t)(max_valid_dma_address >> PAGE_SHIFT);
-	vm_lopage_needed = TRUE;
-	vm_lopage_refill = TRUE;
-	vm_page_reset_contiguous_cursor(TRUE);
-	if (kmem_alloc_contig(kernel_map, &address, size, 0, max_valid_low_ppnum - 1, 0,
-	    KMA_KOBJECT | KMA_ZERO | KMA_DATA | KMA_LOMEM, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
-		printf("wifi: no RMTFS pool: low contiguous allocation failed for %u pages (%#x bytes), low free=%u limit=%u cpm=%u/%u\n",
-		    (unsigned)(size >> PAGE_SHIFT), (unsigned)size, vm_lopage_free_count, vm_lopage_free_limit,
-		    vm_lopages_allocated_cpm_success, vm_lopages_allocated_cpm_failed);
+	if (PE_parse_boot_argn("wifi_rmtfs_pa", &override, sizeof(override)) && override != 0) {
+		physical = (uint64_t)override;          /* MB, so the whole low window fits a 32-bit arg */
+		physical <<= 20;
+	}
+	physical = (physical + PAGE_MASK) & ~(uint64_t)PAGE_MASK;
+	if (physical == 0 || physical + size > 0x100000000ull) {
+		printf("wifi: no RMTFS pool: %#llx+%u is not below 4 GiB\n",
+		    physical, (unsigned)size);
 		return;
 	}
-	hakios_rmtfs_pool = (uint8_t *)address;
-	printf("wifi: RMTFS pool reserved: %u bytes at %#lx (physical %#llx..%#llx)\n", HAKIOS_RMTFS_POOL,
-	    (unsigned long)address, (unsigned long long)kvtophys(address),
-	    (unsigned long long)kvtophys(address + size - PAGE_SIZE));
+	vm_offset_t mapped = ml_io_map_unmappable((vm_offset_t)physical, size, VM_WIMG_WCOMB);
+	if (mapped == 0) {
+		printf("wifi: no RMTFS pool: cannot map %#llx+%u\n", physical, (unsigned)size);
+		return;
+	}
+	bzero((void *)mapped, (size_t)size);
+	hakios_rmtfs_pool = (uint8_t *)mapped;
+	printf("wifi: RMTFS pool: virtual %#lx, physical %#llx..%#llx, %u bytes\n",
+	    (unsigned long)mapped, physical, physical + size - PAGE_SIZE, (unsigned)size);
 }
 
 int
