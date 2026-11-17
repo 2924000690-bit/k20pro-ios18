@@ -14,6 +14,8 @@
  * them (Stage C ports the real GICv3 driver).
  */
 #include <kern/debug.h>
+#include <pexpert/pexpert.h>
+#include <vm/pmap.h>
 #include <kern/kalloc.h>
 #include <kern/locks.h>
 #include <libkern/libkern.h>
@@ -41,6 +43,7 @@ extern uint64_t kvtophys(vm_offset_t va);
 
 static uint8_t *hakios_rmtfs_pool;
 extern uint64_t kvtophys(vm_offset_t va);
+extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, unsigned int flags);
 
 /*
  * The RMTFS pool is not firmware: mpss_storage_prepare() hands its physical
