@@ -108,6 +108,7 @@ struct lx_radio {
 	uint8_t rsn[64];			/* our RSN and optional RSNXE elements */
 	unsigned rsn_length;
 	bool sae, h2e;
+	uint8_t rsn_caps;			/* the AP's RSN capabilities, to be mirrored */
 	uint8_t pmkid[16], auth_frame[1024];
 	unsigned auth_length;
 	struct lx_wpa wpa;
@@ -1391,6 +1392,7 @@ request_elements(struct lx_radio *radio, uint8_t *out, unsigned group_cipher)
 	radio->rsn[1] = 20;
 	memcpy(radio->rsn + 2, "\x01\x00\x00\x0f\xac\x04\x01\x00\x00\x0f\xac\x04\x01\x00\x00\x0f\xac\x02\x00\x00", 20);
 	radio->rsn[7] = (uint8_t)group_cipher;
+	radio->rsn[20] = radio->rsn_caps;	/* what the AP asked for: PMF capable, and required only if it says so */
 	radio->rsn_length = 22;
 	if (radio->sae) {
 		/*
@@ -1400,7 +1402,7 @@ request_elements(struct lx_radio *radio, uint8_t *out, unsigned group_cipher)
 		 * "invalid PMKID" (status 53), so wifi_pmkid=0 leaves it out.
 		 */
 		uint32_t with_pmkid = lx_os_option("wifi_pmkid");
-		radio->rsn[19] = 8; radio->rsn[20] = 0xc0;      /* AKM SAE, MFPC|MFPR */
+		radio->rsn[19] = 8; radio->rsn[20] = radio->rsn_caps;   /* AKM SAE, the AP's own PMF bits */
 		if (with_pmkid) {
 			radio->rsn[1] = 42;
 			radio->rsn[22] = 1; radio->rsn[23] = 0;
@@ -1456,12 +1458,13 @@ request_elements(struct lx_radio *radio, uint8_t *out, unsigned group_cipher)
  * *group_cipher is then what it ciphers frames to everybody with; else what stands in the way.
  */
 static const char *
-protection(const struct lx_target *target, unsigned *group_cipher, bool *sae, bool *h2e)
+protection(struct lx_radio *radio, const struct lx_target *target, unsigned *group_cipher, bool *sae, bool *h2e)
 {
 	const uint8_t *rsn = element(target->elements, target->elements_length, 48), *at, *end;
 	bool ccmp = false, passphrase = false, offers_sae = false;
 	unsigned count;
 	*sae = *h2e = false;
+	rsn_caps = 0;
 
 	if (rsn == NULL) {
 		return (target->capability & 0x10 ? "it is protected by something older than WPA2" : "it is not protected at all: an "
@@ -1494,6 +1497,23 @@ protection(const struct lx_target *target, unsigned *group_cipher, bool *sae, bo
 	}
 	if (!ccmp) {
 		return ("it does not offer CCMP");
+	}
+	if (end - at >= 2) {
+		rsn_caps = at[0];		/* kept for the RSNE we send back */
+	}
+	radio->rsn_caps = rsn_caps;
+	{
+		char hex[3 * 64 + 1];
+		unsigned n = rsn[1] + 2 < 64 ? rsn[1] + 2 : 64;
+
+		for (unsigned i = 0; i < n; i++) {
+			static const char digits[] = "0123456789abcdef";
+			hex[3 * i] = digits[rsn[i] >> 4];
+			hex[3 * i + 1] = digits[rsn[i] & 15];
+			hex[3 * i + 2] = ' ';
+		}
+		hex[3 * n] = 0;
+		lx_tell("lx: the access point's RSNE (%u bytes): %s\n", rsn[1] + 2, hex);
 	}
 	if (offers_sae) {
 #ifdef LX_HAVE_SAE
@@ -1790,7 +1810,7 @@ station_join(struct lx_radio *radio, const struct hakios_sta_join *what)
 		/* (a beacon can be heard on the channel next to its own: where it says it is counts) */
 		channel = linuxkpi_ieee80211_get_channel(hw->wiphy, linuxkpi_ieee80211_channel_to_frequency(e[2], channel->band));
 	}
-	obstacle = protection(target, &group_cipher, &radio->sae, &radio->h2e);
+	obstacle = protection(radio, target, &group_cipher, &radio->sae, &radio->h2e);
 	if (!obstacle && what->security == HAKIOS_STA_WPA3_SAE && !radio->sae) obstacle = "the requested SAE AKM is not offered";
 	if (!obstacle && radio->sae && (!what->passphrase_length || what->passphrase_length > 63)) obstacle = "SAE needs the original passphrase";
 	lx_tell("lx: the network that is wanted: an access point on channel %u (%u MHz) at %d dBm, capabilities %#x, beacons every "
