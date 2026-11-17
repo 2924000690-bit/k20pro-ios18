@@ -5479,13 +5479,12 @@ whole_thread(__unused void *parameter, __unused wait_result_t result)
 			tsleep((void *)&whole_thread, PRIBIO, "wifi-delay", (int)(delay_s * 100));  /* hz is 100 in this kernel */
 		}
 	}
-	printf("wifi: whole start: the radio's memory is being taken\n");
-	/* the memory the radio is shown is one piece: taken now, while that is easy to find */
-	if (hakios_lx_prepare() != 0) {
-		tell("wifi: NO MEMORY FOR THE RADIO in one piece: it is not brought up\n");
-		whole_runs = false;
-		thread_terminate(current_thread());
-	}
+	/*
+	 * The pool the radio reads and writes lives in the SMMU context that step 13 sets up, so
+	 * it is taken later, by lx_start() (step 16), not here: asking for it this early made
+	 * hakios_wifi_radio_map() find no context and fail, and the whole start stopped before
+	 * step 6 with one line nobody could see.
+	 */
 	for (unsigned i = 0; i < sizeof(needed) && failed == 0; i++) {
 		step = needed[i];
 		hakios_wifi_step_running = step;
