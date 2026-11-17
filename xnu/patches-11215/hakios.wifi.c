@@ -5435,7 +5435,18 @@ join_given(uint64_t began)
 	}
 	what.ssid_length = (uint8_t)name_length;
 	what.passphrase_length = (uint8_t)passphrase_length;
-	what.security = HAKIOS_STA_WPA2_PSK;
+	/*
+	 * The AP's RSN element decides: WPA3 SAE (and PMF, which "kira 2.4G" requires)
+	 * refuses a station that associates as WPA2-PSK with status 53, after the SAE
+	 * authentication itself has gone through. wifi_sae=1 asks for SAE; wifi_sae=0
+	 * holds it to WPA2-PSK.
+	 */
+	{
+		uint32_t sae = 1;
+		PE_parse_boot_argn("wifi_sae", &sae, sizeof(sae));
+		what.security = sae ? HAKIOS_STA_WPA3_SAE : HAKIOS_STA_WPA2_PSK;
+		tell("wifi: joining %u bytes of name as %s\n", name_length, sae ? "WPA3 SAE" : "WPA2-PSK");
+	}
 	error = hakios_sta_ask_join_standing(&what);
 	bzero(&what, sizeof(what));
 	for (unsigned waited = 0; error == 0 && hakios_sta_busy() && waited < 300; waited++) {
