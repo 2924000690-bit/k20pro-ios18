@@ -2002,15 +2002,8 @@ station_join(struct lx_radio *radio, const struct hakios_sta_join *what)
 	 * Some access points wait for the station before they begin the four-way handshake. An
 	 * EAPOL-Start says "we are here": version 1, type 1 (Start), no body.
 	 */
-	if (lx_os_option("wifi_eapol_start") != 0) {
-		uint8_t start[14 + 4] = { 0 };
-
-		memcpy(start, radio->target.address, ETH_ALEN);
-		memcpy(start + 6, radio->vif->addr, ETH_ALEN);
-		start[12] = 0x88; start[13] = 0x8e;
-		start[14] = 1; start[15] = 1;
-		ethernet_send(radio, start, sizeof(start));
-		lx_tell("lx: EAPOL-Start sent, in case the access point waits for us\n");
+	if (lx_os_option("wifi_no_eapol_start") == 0) {
+		eapol_start(radio);
 	}
 
 	/* the handshake: the access point begins it; its messages come in as frames and are answered where they come in */
@@ -2024,6 +2017,10 @@ station_join(struct lx_radio *radio, const struct hakios_sta_join *what)
 			lx_tell("lx: waiting for the handshake: %u mgmt frames, %u unicast, %u group, %u eapol in %llu ms\n",
 			    radio->mgmt, radio->received, radio->received_group, radio->eapol,
 			    (lx_os_nanoseconds() - began) / 1000000ull);
+			/* the start is retried every second, as a supplicant does (three tries) */
+			if (heartbeats <= 15 && lx_os_option("wifi_no_eapol_start") == 0) {
+				eapol_start(radio);
+			}
 		}
 	}
 	lx_os_unlock();
@@ -2064,6 +2061,19 @@ out:
 }
 
 /* ---- for the rest of the layer ---------------------------------------------------------------------------- */
+
+/* EAPOL-Start: version 1, type 1, no body. Some access points wait for the station. */
+static void
+eapol_start(struct lx_radio *radio)
+{
+	uint8_t start[14 + 4] = { 0 };
+
+	memcpy(start, radio->target.address, ETH_ALEN);
+	memcpy(start + 6, radio->vif->addr, ETH_ALEN);
+	start[12] = 0x88; start[13] = 0x8e;
+	start[14] = 1; start[15] = 1;
+	ethernet_send(radio, start, sizeof(start));
+}
 
 /* Join the network the kernel was given the name and passphrase of. 0 when frames can pass, or an errno. */
 int
