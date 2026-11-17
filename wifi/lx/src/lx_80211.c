@@ -1966,6 +1966,17 @@ station_join(struct lx_radio *radio, const struct hakios_sta_join *what)
 	    radio->sta->deflink.supp_rates[channel->band], radio->sta->deflink.ht_cap.ht_supported ? "yes" : "no",
 	    radio->sta->deflink.vht_cap.vht_supported ? "yes" : "no", radio->sta->deflink.rx_nss);
 
+	/*
+	 * Power save off, before the handshake: the firmware otherwise sleeps between DTIM
+	 * beacons (8 s of waiting showed 6 management frames and no unicast at all), and the
+	 * access point's first message waits until the station wakes.
+	 */
+	if (radio->ops->config != NULL) {
+		hw->conf.flags &= ~IEEE80211_CONF_PS;
+		radio->ops->config(hw, IEEE80211_CONF_CHANGE_PS);
+		lx_tell("lx: power save is off, so the handshake's messages are not left waiting\n");
+	}
+
 	/* the handshake: the access point begins it; its messages come in as frames and are answered where they come in */
 	began = lx_os_nanoseconds();
 	lx_os_lock();
