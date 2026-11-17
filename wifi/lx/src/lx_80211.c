@@ -1462,9 +1462,9 @@ protection(struct lx_radio *radio, const struct lx_target *target, unsigned *gro
 {
 	const uint8_t *rsn = element(target->elements, target->elements_length, 48), *at, *end;
 	bool ccmp = false, passphrase = false, offers_sae = false;
+	uint8_t rsn_caps = 0;
 	unsigned count;
 	*sae = *h2e = false;
-	rsn_caps = 0;
 
 	if (rsn == NULL) {
 		return (target->capability & 0x10 ? "it is protected by something older than WPA2" : "it is not protected at all: an "
