@@ -15,6 +15,8 @@
  */
 #include <kern/debug.h>
 #include <pexpert/pexpert.h>
+#include <pexpert/device_tree.h>
+#include <pexpert/arm/protos.h>
 #include <vm/pmap.h>
 #include <kern/kalloc.h>
 #include <kern/locks.h>
@@ -266,14 +268,142 @@ hakios_virtio_net_init(void)
 {
 }
 
-/* ---- GICv3 SPI hooks (Stage C ports osfmk/arm64/gic_v3_irq.c) ---- */
-kern_return_t
-gic_v3_spi_attach(__unused uint32_t intid, __unused bool edge,
-    __unused void (*handler)(void *context, uint32_t intid), __unused void *context)
+/* ---- GICv3 shared peripheral interrupts (SPIs) ----
+ *
+ * pe_init_fiq() already maps the distributor, enables Group 1 and takes the
+ * timer and IPIs. What it does not do is give a driver an SPI: sleh_irq()'s
+ * Group 1 branch calls sweet_gic_spi_dispatch() (0294), and this table is what
+ * turns an INTID into a handler. The distributor is mapped here from the same
+ * ADT node pe_fiq uses, /arm-io/gic, whose reg is <gicd off, size, gicr off,
+ * size> relative to the SoC base.
+ */
+#define GICD_IGROUPR(n)         (0x0080u + 4u * (n))
+#define GICD_ISENABLER(n)       (0x0100u + 4u * (n))
+#define GICD_ICENABLER(n)       (0x0180u + 4u * (n))
+#define GICD_ICPENDR(n)         (0x0280u + 4u * (n))
+#define GICD_IPRIORITYR(n)      (0x0400u + (n))
+#define GICD_ICFGR(n)           (0x0c00u + 4u * (n))
+#define GICD_IROUTER(n)         (0x6000u + 8u * (n))
+#define GICD_SPI_PRIORITY       0xa0u
+
+static volatile uint32_t *hakios_gicd;
+
+struct hakios_spi {
+	void (*handler)(void *context, uint32_t intid);
+	void *context;
+};
+
+static struct hakios_spi hakios_spis[1024];
+
+static bool
+hakios_gicd_map(void)
 {
-	return KERN_FAILURE;
+	DTEntry entry;
+	const void *prop;
+	unsigned prop_size;
+	uint64_t offset, size;
+
+	if (hakios_gicd != NULL) {
+		return true;
+	}
+	if (SecureDTLookupEntry(NULL, "/arm-io/gic", &entry) != kSuccess ||
+	    SecureDTGetProperty(entry, "reg", &prop, &prop_size) != kSuccess ||
+	    prop_size < 2 * sizeof(uint64_t)) {
+		printf("wifi: no GIC distributor in the ADT\n");
+		return false;
+	}
+	offset = ((const uint64_t *)prop)[0];
+	size = ((const uint64_t *)prop)[1];
+	vm_offset_t mapped = ml_io_map_unmappable((vm_offset_t)(pe_arm_get_soc_base_phys() + offset),
+	    (vm_size_t)size, VM_WIMG_IO);
+	if (mapped == 0) {
+		printf("wifi: cannot map the GIC distributor at %#llx+%#llx\n", offset, size);
+		return false;
+	}
+	hakios_gicd = (volatile uint32_t *)mapped;
+	printf("wifi: GIC distributor at %#llx, %#llx bytes\n", offset, size);
+	return true;
 }
-void gic_v3_spi_mask(__unused uint32_t intid) { }
-void gic_v3_spi_unmask(__unused uint32_t intid) { }
-void gic_v3_spi_detach(__unused uint32_t intid) { }
-uint64_t gic_v3_spi_count(__unused uint32_t intid) { return 0; }
+
+static void
+hakios_spi_write(unsigned reg, uint32_t value)
+{
+	hakios_gicd[reg / 4] = value;
+}
+
+static uint32_t
+hakios_spi_read(unsigned reg)
+{
+	return hakios_gicd[reg / 4];
+}
+
+kern_return_t
+gic_v3_spi_attach(uint32_t intid, bool edge, void (*handler)(void *context, uint32_t intid), void *context)
+{
+	if (intid < 32 || intid > 1019 || handler == NULL || !hakios_gicd_map()) {
+		return KERN_FAILURE;
+	}
+	hakios_spis[intid].handler = handler;
+	hakios_spis[intid].context = context;
+
+	unsigned word = intid / 32, bit = 1u << (intid % 32);
+	/* Group 1 NS: TrustZone owns Group 0 here. */
+	hakios_spi_write(GICD_IGROUPR(word), hakios_spi_read(GICD_IGROUPR(word)) | bit);
+	hakios_gicd[GICD_IPRIORITYR(intid) / 4] = GICD_SPI_PRIORITY;
+	/* ICFGR has 2 bits per interrupt: 0b10 is edge-triggered, 0b00 level. */
+	unsigned cfg_off = GICD_ICFGR(intid) / 4;
+	uint32_t cfg = hakios_gicd[cfg_off];
+	unsigned shift = 2 * (intid % 16) + 1;
+	cfg = edge ? (cfg | (1u << shift)) : (cfg & ~(1u << shift));
+	hakios_gicd[cfg_off] = cfg;
+	/* Route to the processor that attached it (affinity 0 in these MPIDRs). */
+	hakios_gicd[GICD_IROUTER(intid) / 4] = 0;
+	hakios_gicd[GICD_IROUTER(intid) / 4 + 1] = (uint32_t)(__builtin_arm_rsr64("MPIDR_EL1") & 0xff00ffffffull);
+	hakios_spi_write(GICD_ICPENDR(word), bit);
+	hakios_spi_write(GICD_ISENABLER(word), bit);
+	printf("wifi: SPI %u attached (%s), enabled, routed to this processor\n", intid, edge ? "edge" : "level");
+	return KERN_SUCCESS;
+}
+
+void
+gic_v3_spi_mask(uint32_t intid)
+{
+	if (intid >= 32 && intid <= 1019 && hakios_gicd != NULL) {
+		hakios_spi_write(GICD_ICENABLER(intid / 32), 1u << (intid % 32));
+	}
+}
+
+void
+gic_v3_spi_unmask(uint32_t intid)
+{
+	if (intid >= 32 && intid <= 1019 && hakios_gicd != NULL) {
+		hakios_spi_write(GICD_ISENABLER(intid / 32), 1u << (intid % 32));
+	}
+}
+
+void
+gic_v3_spi_detach(uint32_t intid)
+{
+	if (intid >= 32 && intid <= 1019) {
+		hakios_spis[intid].handler = NULL;
+		hakios_spis[intid].context = NULL;
+		gic_v3_spi_mask(intid);
+	}
+}
+
+uint64_t
+gic_v3_spi_count(__unused uint32_t intid)
+{
+	return 0;
+}
+
+/* Called from sleh_irq() for every Group 1 interrupt that is not the timer. */
+bool
+sweet_gic_spi_dispatch(uint32_t intid)
+{
+	if (intid < 32 || intid > 1019 || hakios_spis[intid].handler == NULL) {
+		return false;
+	}
+	hakios_spis[intid].handler(hakios_spis[intid].context, intid);
+	return true;
+}
