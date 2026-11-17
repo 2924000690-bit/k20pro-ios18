@@ -1978,6 +1978,21 @@ station_join(struct lx_radio *radio, const struct hakios_sta_join *what)
 		lx_tell("lx: power save is off, so the handshake's messages are not left waiting\n");
 	}
 
+	/*
+	 * Some access points wait for the station before they begin the four-way handshake. An
+	 * EAPOL-Start says "we are here": version 1, type 1 (Start), no body.
+	 */
+	if (lx_os_option("wifi_eapol_start") != 0) {
+		uint8_t start[14 + 4] = { 0 };
+
+		memcpy(start, radio->target.address, ETH_ALEN);
+		memcpy(start + 6, radio->vif->addr, ETH_ALEN);
+		start[12] = 0x88; start[13] = 0x8e;
+		start[14] = 1; start[15] = 1;
+		ethernet_send(radio, start, sizeof(start));
+		lx_tell("lx: EAPOL-Start sent, in case the access point waits for us\n");
+	}
+
 	/* the handshake: the access point begins it; its messages come in as frames and are answered where they come in */
 	began = lx_os_nanoseconds();
 	lx_os_lock();
