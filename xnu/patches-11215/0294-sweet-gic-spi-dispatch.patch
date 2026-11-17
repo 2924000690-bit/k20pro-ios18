@@ -1,0 +1,24 @@
+xnu: give driver SPIs a handler on the SWEET IRQ path
+
+sleh_irq()'s Group 1 branch hands an interrupt to cdp->interrupt_handler, which
+nothing on this board installs: a peripheral interrupt (the Wi-Fi SNOC's lines)
+was acknowledged and EOI'd with its handler never called. Ask the Wi-Fi shim's
+SPI table first, and fall back to the old path when it has nothing for that
+INTID.
+
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -2430,8 +2430,11 @@
+ 		__builtin_arm_isb(ISB_SY);
+ 		cpu_signal_handler();
+ 	} else {
++		/* A driver's shared peripheral interrupt (hakios.wifi_shim.c). */
++		extern bool sweet_gic_spi_dispatch(uint32_t intid);
++
+ 		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_OTHER);
+-		if (cdp->interrupt_handler) {
++		if (!sweet_gic_spi_dispatch(intid) && cdp->interrupt_handler) {
+ 			cdp->interrupt_handler(cdp->interrupt_target,
+ 			    cdp->interrupt_refCon,
+ 			    cdp->interrupt_nub,
