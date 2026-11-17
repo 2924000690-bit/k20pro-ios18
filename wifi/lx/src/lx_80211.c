@@ -1973,7 +1973,8 @@ station_join(struct lx_radio *radio, const struct hakios_sta_join *what)
 	 */
 	if (radio->ops->config != NULL) {
 		hw->conf.flags &= ~IEEE80211_CONF_PS;
-		radio->ops->config(hw, IEEE80211_CONF_CHANGE_PS);
+		/* FreeBSD's LinuxKPI config op is (hw, changed, vif_id) */
+		radio->ops->config(hw, 0, IEEE80211_CONF_CHANGE_PS);
 		lx_tell("lx: power save is off, so the handshake's messages are not left waiting\n");
 	}
 
