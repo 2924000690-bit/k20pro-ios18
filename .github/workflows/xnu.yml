@@ -192,8 +192,9 @@ jobs:
           # mk-ath10k.py's SAE half is compiled against $THEOS/sdks/iPhoneOS16.5.sdk; the runner has
           # that SDK in Xcode, under its own name, so point THEOS at a directory with the alias.
           mkdir -p "$RUNNER_TEMP/theos/sdks"
-          ln -sfn "$(xcrun -sdk iphoneos --show-sdk-path)" "$RUNNER_TEMP/theos/sdks/iPhoneOS16.5.sdk"
-          THEOS="$RUNNER_TEMP/theos" python3 tools/mk-ath10k.py
+          ln -sfn "$(xcrun -sdk macosx --show-sdk-path)" "$RUNNER_TEMP/theos/sdks/iPhoneOS16.5.sdk"
+          # The kernel is a macOS-target build, so the object must be too.
+          ATH10K_TARGET=arm64-apple-macos15.2 THEOS="$RUNNER_TEMP/theos" python3 tools/mk-ath10k.py
           ls -l xnu-deps/build/ath10k/out/ath10k.o
 
       - name: Build

@@ -16,6 +16,11 @@ ROOT = Path(__file__).resolve().parents[1]
 B = ROOT / 'xnu-deps/build/ath10k'
 W = ROOT / 'wifi/lx'
 CACHE = B / 'cache'
+# The kernel this object is linked into decides the platform: the iOS 16 tree built an iOS
+# kernel, the iOS 18 SWEET kernel is built as a macOS target (XNU_TARGET_OS_OSX), and ld
+# refuses to mix the two ("building for macOS, but linking in object file built for iOS").
+TARGET = os.environ.get('ATH10K_TARGET', 'arm64-apple-ios16.5')
+
 SOURCES = {
     'linux': ('linux-7.0.14.tar.xz', 'https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.0.14.tar.xz',
               'de9999b784d2293f00d39c62d8f92a08ab8a54bc4e80ffd250a0c09cb07a0f98'),
@@ -92,7 +97,7 @@ def sae_build(host):
         flags += ['-DLX_SAE_HOST', '-fsanitize=address,undefined', '-fno-sanitize-recover=all']
     else:
         sdk = Path(os.environ.get('THEOS', str(Path.home() / 'theos'))) / 'sdks/iPhoneOS16.5.sdk'
-        flags += ['-target', 'arm64-apple-ios16.5', '-isysroot', str(sdk), '-mkernel', '-mgeneral-regs-only',
+        flags += ['-target', TARGET, '-isysroot', str(sdk), '-mkernel', '-mgeneral-regs-only',
                   '-ffreestanding', '-fno-builtin', '-D_FORTIFY_SOURCE=0',
                   f'-DLX_HAKIOS_LX_H="{ROOT}/xnu/patches-11215/hakios.lx.h"']
     files = [m / 'library' / f'{n}.c' for n in
@@ -131,7 +136,7 @@ def driver_build():
                                'linux-7.0.14/drivers/net/wireless/ath/spectral_common.h',
                                'linux-7.0.14/drivers/net/wireless/ath/ath.h'], [W / 'ath10k/patches/icnss-bootstrap.patch'])
     objdir = B / 'obj'; objdir.mkdir(exist_ok=True)
-    flags = shlex.split(os.environ.get('CC', 'clang')) + ['-target', 'arm64-apple-ios16.5', '-mkernel',
+    flags = shlex.split(os.environ.get('CC', 'clang')) + ['-target', TARGET, '-mkernel',
         '-mgeneral-regs-only', '-fno-builtin', '-fno-common', '-ffreestanding', '-fno-strict-aliasing',
         '-funsigned-char', '-nostdinc', '-std=gnu17', '-O2', '-g', '-w', '-D__FreeBSD__=15', '-D_KERNEL',
         '-DKLD_MODULE', '-DHAVE_KERNEL_OPTION_HEADERS', '-include', str(gen / 'opt_global.h'),
