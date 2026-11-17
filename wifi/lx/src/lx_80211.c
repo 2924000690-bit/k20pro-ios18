@@ -131,7 +131,7 @@ struct lx_radio {
 	int reached;				/* how far the access point has come as the driver's station (IEEE80211_STA_...) */
 	int8_t signal;				/* dBm, of the last beacon of the network joined */
 	int last_error;
-	unsigned sent, sent_lost, received, received_group, eapol, rekeys;
+	unsigned sent, sent_lost, received, received_group, eapol, rekeys, mgmt;
 	unsigned long long joined_at;		/* nanoseconds */
 };
 
@@ -846,6 +846,8 @@ management_received(struct lx_radio *radio, const uint8_t *f, unsigned length, c
 {
 	int answer = ANSWER_NONE;
 	unsigned status = 0;
+
+	radio->mgmt++;
 
 	if (radio->sta == NULL || length < 26 || memcmp(f + 10, radio->target.address, ETH_ALEN) != 0 ||
 	    (memcmp(f + 4, radio->vif->addr, ETH_ALEN) != 0 && !(radio->sae && (f[4] & 1)))) {
@@ -1967,9 +1969,15 @@ station_join(struct lx_radio *radio, const struct hakios_sta_join *what)
 	/* the handshake: the access point begins it; its messages come in as frames and are answered where they come in */
 	began = lx_os_nanoseconds();
 	lx_os_lock();
+	unsigned heartbeats = 0;
 	while (radio->handshake != LX_WPA_KEYS && radio->handshake != LX_WPA_BAD && radio->answer != ANSWER_GONE &&
 	    lx_os_nanoseconds() - began < 8000000000ull) {
 		lx_os_sleep(&radio->handshake, 20 * 1000000ull);
+		if (++heartbeats % 5 == 0) {
+			lx_tell("lx: waiting for the handshake: %u mgmt frames, %u unicast, %u group, %u eapol in %llu ms\n",
+			    radio->mgmt, radio->received, radio->received_group, radio->eapol,
+			    (lx_os_nanoseconds() - began) / 1000000ull);
+		}
 	}
 	lx_os_unlock();
 	if (radio->handshake != LX_WPA_KEYS) {
