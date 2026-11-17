@@ -1387,12 +1387,28 @@ request_elements(struct lx_radio *radio, uint8_t *out, unsigned group_cipher)
 	radio->rsn[7] = (uint8_t)group_cipher;
 	radio->rsn_length = 22;
 	if (radio->sae) {
-		radio->rsn[1] = 42; radio->rsn[19] = 8; radio->rsn[20] = 0xc0;
-		radio->rsn[22] = 1; radio->rsn[23] = 0;
-		memcpy(radio->rsn + 24, radio->pmkid, 16);
-		memcpy(radio->rsn + 40, "\x00\x0f\xac\x06", 4);
-		radio->rsn_length = 44;
-		if (radio->h2e) { memcpy(radio->rsn + 44, "\xf4\x01\x20", 3); radio->rsn_length += 3; }
+		/*
+		 * WPA3 SAE, PMF required (MFPC|MFPR), group management cipher BIP-CMAC-128.
+		 * The PMKID is what the SAE key exchange derived; an access point that does
+		 * not know it (or a derivation that differs) answers the association with
+		 * "invalid PMKID" (status 53), so wifi_pmkid=0 leaves it out.
+		 */
+		uint32_t with_pmkid = lx_os_option("wifi_pmkid");
+		radio->rsn[19] = 8; radio->rsn[20] = 0xc0;      /* AKM SAE, MFPC|MFPR */
+		if (with_pmkid) {
+			radio->rsn[1] = 42;
+			radio->rsn[22] = 1; radio->rsn[23] = 0;
+			memcpy(radio->rsn + 24, radio->pmkid, 16);
+			memcpy(radio->rsn + 40, "\x00\x0f\xac\x06", 4);
+			radio->rsn_length = 44;
+			if (radio->h2e) { memcpy(radio->rsn + 44, "\xf4\x01\x20", 3); radio->rsn_length += 3; }
+		} else {
+			radio->rsn[1] = 26;                     /* no PMKID list */
+			radio->rsn[22] = 0; radio->rsn[23] = 0;
+			memcpy(radio->rsn + 24, "\x00\x0f\xac\x06", 4);
+			radio->rsn_length = 28;
+			if (radio->h2e) { memcpy(radio->rsn + 28, "\xf4\x01\x20", 3); radio->rsn_length += 3; }
+		}
 	}
 	memcpy(at, radio->rsn, radio->rsn_length);
 	at += radio->rsn_length;
@@ -1894,6 +1910,18 @@ station_join(struct lx_radio *radio, const struct hakios_sta_join *what)
 		skb_trim(skb, 28 + length);
 		frame_send(radio, skb);
 		answer = answer_wait(radio, 500);
+	}
+	{
+		char hex[3 * 64 + 1];
+		unsigned n = radio->rsn_length < 64 ? radio->rsn_length : 64;
+		for (unsigned i = 0; i < n; i++) {
+			static const char digits[] = "0123456789abcdef";
+			hex[3 * i] = digits[radio->rsn[i] >> 4];
+			hex[3 * i + 1] = digits[radio->rsn[i] & 15];
+			hex[3 * i + 2] = ' ';
+		}
+		hex[3 * n] = 0;
+		lx_tell("lx: the RSNE we sent (%u bytes): %s\n", radio->rsn_length, hex);
 	}
 	lx_tell("lx: ASSOCIATION: %s (status %u); we are its station number %u; its answer has %u bytes of elements\n", answer ==
 	    ANSWER_ASSOCIATED ? "THE ACCESS POINT ACCEPTS" : answer == ANSWER_NONE ? "NO ANSWER from the access point to three "
