@@ -93,6 +93,41 @@ hakios_wifi_reserve_pool(void)
 	    (unsigned long)mapped, physical, physical + size - PAGE_SIZE, (unsigned)size);
 }
 
+/*
+ * The driver's 44 MB pool has to be physically contiguous, and by the time
+ * step 16 asks for it (about 100 s in) the kernel's memory is fragmented:
+ * "no 46137344 bytes of memory in one piece". Take it at the start of the run
+ * instead, while it is still cheap, and hand it to lx_os_radio_memory() later.
+ * This is ordinary kernel-window memory, not the modem's 32-bit window.
+ */
+#define HAKIOS_RADIO_POOL       (44u << 20)
+
+static void *hakios_radio_pool;
+
+void *
+hakios_radio_pool_take(unsigned long size)
+{
+	return (hakios_radio_pool != NULL && size == HAKIOS_RADIO_POOL) ? hakios_radio_pool : NULL;
+}
+
+static void
+hakios_radio_pool_reserve(void)
+{
+	vm_offset_t address = 0;
+
+	if (hakios_radio_pool != NULL) {
+		return;
+	}
+	if (kmem_alloc_contig(kernel_map, &address, round_page(HAKIOS_RADIO_POOL), 0, 0, 0,
+	    KMA_KOBJECT | KMA_ZERO | KMA_DATA, VM_KERN_MEMORY_IOKIT) == KERN_SUCCESS) {
+		hakios_radio_pool = (void *)address;
+		printf("wifi: %u MB pool for the radio reserved at %#lx (physical %#llx)\n",
+		    HAKIOS_RADIO_POOL >> 20, (unsigned long)address, kvtophys(address));
+	} else {
+		printf("wifi: no %u MB pool for the radio in one piece\n", HAKIOS_RADIO_POOL >> 20);
+	}
+}
+
 int
 hakios_is_raphael(void)
 {
@@ -102,6 +137,7 @@ hakios_is_raphael(void)
 	if (raphael && !prepared) {
 		prepared = true;
 		hakios_wifi_reserve_pool();
+		hakios_radio_pool_reserve();
 	}
 	return raphael;
 }

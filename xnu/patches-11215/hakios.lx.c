@@ -67,8 +67,12 @@ lx_os_radio_memory(unsigned long size, unsigned long long *address)
 	vm_offset_t cached = 0, uncached;
 	uint64_t physical;
 
+	extern void *hakios_radio_pool_take(unsigned long size);
+
 	size = round_page(size);
-	if (kmem_alloc_contig(kernel_map, &cached, size, 0, 0, 0, KMA_KOBJECT | KMA_ZERO | KMA_DATA, VM_KERN_MEMORY_IOKIT) !=
+	cached = (vm_offset_t)hakios_radio_pool_take(size);     /* taken at the start of the run */
+	if (cached == 0 &&
+	    kmem_alloc_contig(kernel_map, &cached, size, 0, 0, 0, KMA_KOBJECT | KMA_ZERO | KMA_DATA, VM_KERN_MEMORY_IOKIT) !=
 	    KERN_SUCCESS) {
 		say("lx: no %lu bytes of memory in one piece\n", size);
 		return NULL;
