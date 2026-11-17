@@ -789,6 +789,8 @@ to_ethernet(struct sk_buff *skb, bool cipher_header_gone)
 }
 
 /* A message of the handshake from the access point: answered at once; the keys are for join() to give to the driver. */
+static void eapol_start(struct lx_radio *radio);
+
 static void
 handshake_message(struct lx_radio *radio, const uint8_t *frame, unsigned length)
 {
