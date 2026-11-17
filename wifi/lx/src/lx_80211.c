@@ -720,7 +720,14 @@ frame_send(struct lx_radio *radio, struct sk_buff *skb)
 		IEEE80211_SKB_CB(skb)->control.hw_key = radio->pairwise_key;
 	}
 
+	bool eapol = skb->len >= 14 && skb->data[12] == 0x88 && skb->data[13] == 0x8e;
+	if (eapol) {
+		lx_tell("lx: EAPOL TX enters ath10k ops->tx (%u bytes, type %u)\n", skb->len, skb->len >= 16 ? skb->data[15] : 0);
+	}
 	radio->ops->tx(&radio->hw, &control, skb);
+	if (eapol) {
+		lx_tell("lx: EAPOL TX returned from ath10k ops->tx\n");
+	}
 }
 
 /* The 24 bytes a management frame to the access point begins with (the kind: 0xb0 authentication, 0x00 association request, ...). */
@@ -2005,7 +2012,9 @@ station_join(struct lx_radio *radio, const struct hakios_sta_join *what)
 	 * EAPOL-Start says "we are here": version 1, type 1 (Start), no body.
 	 */
 	if (lx_os_option("wifi_no_eapol_start") == 0) {
+		lx_tell("lx: sending EAPOL-Start (sent %u, lost %u)\n", radio->sent, radio->sent_lost);
 		eapol_start(radio);
+		lx_tell("lx: EAPOL-Start send returned (sent %u, lost %u)\n", radio->sent, radio->sent_lost);
 	}
 
 	/* the handshake: the access point begins it; its messages come in as frames and are answered where they come in */
