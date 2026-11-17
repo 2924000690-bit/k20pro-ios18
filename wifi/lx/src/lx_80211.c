@@ -828,6 +828,10 @@ handshake_message(struct lx_radio *radio, const uint8_t *frame, unsigned length)
 static void
 ethernet_received(struct lx_radio *radio, struct sk_buff *skb)
 {
+	if (!radio->joined && radio->eapol == 0 && radio->received < 4 && skb->len >= 14) {
+		lx_tell("lx: a frame while not joined: %u bytes, type %02x%02x, from %02x:%02x:%02x:%02x:%02x:%02x\n", skb->len,
+		    skb->data[12], skb->data[13], skb->data[6], skb->data[7], skb->data[8], skb->data[9], skb->data[10], skb->data[11]);
+	}
 	if (skb->len >= 14 && skb->data[12] == 0x88 && skb->data[13] == 0x8e) {
 		handshake_message(radio, skb->data, skb->len);
 	} else if (radio->joined && skb->len >= 14) {
@@ -1969,6 +1973,8 @@ station_join(struct lx_radio *radio, const struct hakios_sta_join *what)
 	}
 	lx_os_unlock();
 	if (radio->handshake != LX_WPA_KEYS) {
+		lx_tell("lx: received so far: %u unicast, %u group, %u sent; eapol %u\n", radio->received, radio->received_group,
+		    radio->sent, radio->eapol);
 		lx_tell("lx: THE HANDSHAKE DID NOT COME THROUGH in %llu ms: %s%s (%u of its messages came)\n", (lx_os_nanoseconds() - began) /
 		    1000000ull, radio->answer == ANSWER_GONE ? "the access point has shown us the door (a wrong passphrase gives this)" :
 		    radio->handshake == LX_WPA_BAD ? "a message was not good: " : radio->handshake == LX_WPA_ANSWER ? "our message 2 was "
