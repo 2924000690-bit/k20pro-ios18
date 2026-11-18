@@ -387,6 +387,7 @@ static struct {
 	bool attached;
 } lx_vector[LX_VECTORS];
 static uint32_t lx_irq_first;                   /* the GIC's number of vector 0; 0: no interrupts */
+static bool lx_irq_msi;                         /* ... set by an MSI window: edge-triggered INTIDs, not raphael's level SPIs */
 static uint32_t lx_irq_pending;                 /* the vectors that have fired and are not dealt with yet */
 static uint32_t lx_irq_running;                 /* the vectors whose function the thread is in */
 static thread_t lx_irq_thread;
@@ -444,6 +445,7 @@ lx_os_irq_msi(unsigned long long *address, unsigned *data)
 		return 0;
 	}
 	lx_irq_first = first;
+	lx_irq_msi = true;
 	return 1;
 }
 
@@ -452,12 +454,22 @@ lx_os_irq_attach(unsigned vector, void (*function)(void *), void *argument)
 {
 	kern_return_t kr;
 
+	/*
+	 * Two callers. ath11k's lx_bus asks for an MSI window first (lx_os_irq_msi()): its vectors are
+	 * GIC INTIDs from that window, edge-triggered. ath10k's SNOC host glue (host.c) never asks for
+	 * one: raphael's 12 copy-engine interrupts are SPI 446..457, level-high, and lkpi_request_irq()
+	 * passes vector = irq - 446. Without this fallback lx_irq_first stays 0 and every attach fails
+	 * with EINVAL, which fails ath10k_snoc_request_irq() and the whole driver probe.
+	 */
+	if (lx_irq_first == 0 && hakios_is_raphael()) {
+		lx_irq_first = 446;
+	}
 	if (vector >= LX_VECTORS || lx_irq_first == 0 || function == NULL) {
 		return EINVAL;
 	}
 	if (lx_irq_thread == THREAD_NULL) {
-		hakios_wifi_tell("lx: wifi_irq: the radio's interrupt IDs (%u + v), edge-triggered, group 1, routed to this processor\n",
-		    lx_irq_first);
+		hakios_wifi_tell("lx: wifi_irq: the radio's interrupt IDs (%u + v), %s-triggered, group 1, routed to this processor\n",
+		    lx_irq_first, lx_irq_msi ? "edge" : "level");
 		if (kernel_thread_start(lx_irq_runs, NULL, &lx_irq_thread) != KERN_SUCCESS) {
 			lx_irq_thread = THREAD_NULL;
 			return ENOMEM;
@@ -469,7 +481,7 @@ lx_os_irq_attach(unsigned vector, void (*function)(void *), void *argument)
 	lx_vector[vector].argument = argument;
 	lx_vector[vector].attached = true;
 	lck_mtx_unlock(&lx_irq_lock);
-	if ((kr = gic_v3_spi_attach(lx_irq_first + vector, true, lx_irq_arrived, NULL)) != KERN_SUCCESS) {
+	if ((kr = gic_v3_spi_attach(lx_irq_first + vector, lx_irq_msi, lx_irq_arrived, NULL)) != KERN_SUCCESS) {
 		lck_mtx_lock(&lx_irq_lock);
 		lx_vector[vector].attached = false;
 		lck_mtx_unlock(&lx_irq_lock);

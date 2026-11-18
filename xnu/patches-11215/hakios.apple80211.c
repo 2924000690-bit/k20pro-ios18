@@ -133,6 +133,21 @@ struct apple80211_scan_request {
 	uint32_t short_ssid, unused_3;
 };
 
+struct apple80211_ssid {
+	uint32_t version, length;
+	uint8_t bytes[32];
+} __attribute__((packed));
+
+struct apple80211_scan_multiple_request {
+	uint32_t version, bss_type, ssid_count;
+	struct apple80211_ssid ssids[10];
+	uint32_t bssid_count;
+	uint8_t bssids[16][6];
+	uint32_t scan_type, phy_mode, dwell_ms, rest_ms, channel_count;
+	struct apple80211_channel channels[400];
+	uint16_t unused;
+} __attribute__((packed));
+
 /* SCAN_RESULT (11) and CURRENT_NETWORK (103): 1164 bytes */
 struct apple80211_scan_result {
 	uint32_t version;
@@ -191,6 +206,9 @@ _Static_assert(sizeof(struct apple80211_scan_request) == 5456 && offsetof(struct
 _Static_assert(sizeof(struct apple80211_scan_result) == 1164 && offsetof(struct apple80211_scan_result, ssid_length) == 0x60 &&
     offsetof(struct apple80211_scan_result, age_ms) == 0x84 && offsetof(struct apple80211_scan_result, elements) == 0x8c,
     "a scan's result as iOS 16.5 has it");
+_Static_assert(sizeof(struct apple80211_ssid) == 40 && offsetof(struct apple80211_scan_multiple_request, bssid_count) == 0x19c &&
+    offsetof(struct apple80211_scan_multiple_request, channels) == 0x214 && sizeof(struct apple80211_scan_multiple_request) == 5334,
+    "SCAN_REQ_MULTIPLE layout as Apple80211 defines it");
 
 /* Apple80211's events (APPLE80211_M_...) */
 enum { EVENT_POWER_CHANGED = 1, EVENT_SSID_CHANGED = 2, EVENT_BSSID_CHANGED = 3, EVENT_LINK_CHANGED = 4, EVENT_ASSOC_DONE = 9,
@@ -202,6 +220,7 @@ static LCK_GRP_DECLARE(apple80211_lock_group, "hakios-apple80211");
 static LCK_MTX_DECLARE(apple80211_lock, &apple80211_lock_group);
 static unsigned result_next;                    /* which of what the last scan heard a SCAN_RESULT request gets next */
 static uint32_t join_result;                    /* of the last join asked for: 0 while it runs, then Apple80211's number */
+static uint16_t auth_lower, auth_upper;
 
 /* ---- channels ---------------------------------------------------------------------------------------- */
 
@@ -376,6 +395,15 @@ get(struct apple80211req *request)
 		request->req_val = (int32_t)join_result;
 		lck_mtx_unlock(&apple80211_lock);
 		return 0;
+	case 2: {                               /* the framework caches auth types before association */
+		struct { uint32_t version, lower, upper, extended; } answer = { .version = 1 };
+
+		lck_mtx_lock(&apple80211_lock);
+		answer.lower = auth_lower;
+		answer.upper = auth_upper;
+		lck_mtx_unlock(&apple80211_lock);
+		return give(request, &answer, sizeof(answer));
+	}
 	case 11: {                              /* what the last scan heard, one access point a request; EIO: that was all */
 		struct hakios_sta_bss *bss = kalloc_data(sizeof(*bss), Z_WAITOK);
 		unsigned index;
@@ -519,6 +547,80 @@ out:
 }
 
 static int
+set_scan_multiple(const struct apple80211req *request, char *said, size_t said_size)
+{
+	struct apple80211_scan_multiple_request *asked;
+	struct hakios_sta_scan *what;
+	unsigned unknown = 0;
+	int error;
+
+	if (request->req_len != sizeof(*asked)) {
+		return EINVAL;
+	}
+	if (!hakios_sta_present()) {
+		return EBUSY;
+	}
+	asked = kalloc_data(sizeof(*asked), Z_WAITOK);
+	what = kalloc_data(sizeof(*what), Z_WAITOK | Z_ZERO);
+	if (asked == NULL || what == NULL || (error = copyin(request->req_data, asked, sizeof(*asked))) != 0) {
+		error = asked == NULL || what == NULL ? ENOMEM : error;
+		goto out;
+	}
+	if (asked->ssid_count > sizeof(asked->ssids) / sizeof(asked->ssids[0]) ||
+	    asked->bssid_count > sizeof(asked->bssids) / sizeof(asked->bssids[0]) || asked->channel_count >
+	    sizeof(asked->channels) / sizeof(asked->channels[0])) {
+		error = EINVAL;
+		goto out;
+	}
+	for (unsigned i = 0; i < asked->ssid_count; i++) {
+		if (asked->ssids[i].length > sizeof(asked->ssids[i].bytes)) {
+			error = EINVAL;
+			goto out;
+		}
+	}
+	/* This station API has one SSID filter and no BSSID filter. Preserve only an exact single-SSID scan. */
+	if (asked->ssid_count == 1 && asked->bssid_count == 0 && asked->ssids[0].length != 0) {
+		what->ssid_length = (uint8_t)asked->ssids[0].length;
+		memcpy(what->ssid, asked->ssids[0].bytes, what->ssid_length);
+	}
+	what->passive = asked->scan_type == 2;
+	what->dwell_ms = asked->dwell_ms <= UINT16_MAX ? (uint16_t)asked->dwell_ms : 0;
+	/* More than 64 requested channels cannot be represented; scan all instead of silently omitting channels. */
+	if (asked->channel_count <= sizeof(what->frequencies) / sizeof(what->frequencies[0])) {
+		for (unsigned i = 0; i < asked->channel_count; i++) {
+			unsigned frequency = channel_frequency(&asked->channels[i]);
+
+			if (frequency != 0) {
+				what->frequencies[what->frequency_count++] = (uint16_t)frequency;
+			} else {
+				unknown++;
+			}
+		}
+	}
+	snprintf(said, said_size, " (a multiple scan: %u names, %u access points, %u channels of which %u are not the radio's, passive %u)",
+	    asked->ssid_count, asked->bssid_count, asked->channel_count, unknown, what->passive);
+	if (asked->channel_count != 0 && asked->channel_count <= sizeof(what->frequencies) / sizeof(what->frequencies[0]) &&
+	    what->frequency_count == 0) {
+		error = EINVAL;
+	} else {
+		lck_mtx_lock(&apple80211_lock);
+		result_next = 0;
+		lck_mtx_unlock(&apple80211_lock);
+		error = hakios_sta_ask_scan(what);
+	}
+out:
+	if (asked != NULL) {
+		memset_s(asked, sizeof(*asked), 0, sizeof(*asked));
+		kfree_data(asked, sizeof(*asked));
+	}
+	if (what != NULL) {
+		memset_s(what, sizeof(*what), 0, sizeof(*what));
+		kfree_data(what, sizeof(*what));
+	}
+	return error;
+}
+
+static int
 set_join(const struct apple80211req *request, char *said, size_t said_size)
 {
 	struct apple80211_assoc *asked;
@@ -563,6 +665,12 @@ set_join(const struct apple80211req *request, char *said, size_t said_size)
 	join_result = 0;
 	lck_mtx_unlock(&apple80211_lock);
 	error = hakios_sta_ask_join(what);
+	if (error == 0) {
+		lck_mtx_lock(&apple80211_lock);
+		auth_lower = asked->auth_lower;
+		auth_upper = asked->auth_upper;
+		lck_mtx_unlock(&apple80211_lock);
+	}
 out:
 	if (asked != NULL) {
 		memset_s(asked, sizeof(*asked), 0, sizeof(*asked));
@@ -583,6 +691,20 @@ set(const struct apple80211req *request, char *said, size_t said_size)
 		return set_join(request, said, said_size);
 	case 22:                                /* leave the network */
 		return hakios_sta_ask_leave();
+	case 2: {                               /* cache auth types selected by the framework */
+		struct { uint32_t version, lower, upper, extended; } asked;
+		int error;
+
+		if (request->req_len < sizeof(asked) || (error = copyin(request->req_data, &asked, sizeof(asked))) != 0) {
+			return request->req_len < sizeof(asked) ? EINVAL : error;
+		}
+		lck_mtx_lock(&apple80211_lock);
+		auth_lower = (uint16_t)asked.lower;
+		auth_upper = (uint16_t)asked.upper;
+		lck_mtx_unlock(&apple80211_lock);
+		snprintf(said, said_size, " (authentication %#x/%#x)", asked.lower, asked.upper);
+		return 0;
+	}
 	case 19: {                              /* the radio's power */
 		struct {
 			uint32_t version, radios, state[4];
@@ -597,6 +719,8 @@ set(const struct apple80211req *request, char *said, size_t said_size)
 	}
 	case 10:
 		return set_scan(request, said, said_size);
+	case 86:
+		return set_scan_multiple(request, said, said_size);
 	default:
 		return EOPNOTSUPP;
 	}
