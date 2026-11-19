@@ -84,3 +84,15 @@
   `SweetFramebuffer.cpp` 记录 iOS 设置的等级并在唤醒时重放
 - 开机图：`logo` 与 `splash` 分区是 Android 与 iOS 共用的 ABL 开机图（已恢复官方 `logo.img`）；
   UniXNU 阶段的绿色是它自带的菜单 UI，白苹果需要在 UEFI/DarwinBoot 或内核早期 FB 里画
+
+## 结论：Settings 灰的最后一环是 IO80211Interface（2026-11-20 01:2x）
+
+- 手动跑 `/usr/sbin/wifid` 抓到它自己的日志：`PPM Error: No matching driver found`
+- wifid 二进制里引用的 IOKit 类名：`IO80211Interface`、`IO80211APIUserClient`、`AppleWiFi`、
+  `IO80211InterfaceRole/ProductType/RadioMODE/...`
+- 说明：wifi 的 ioctl 链（SIOCSA80211/SIOCGA80211、SIOCGIFMEDIA=802.11）已经能用——wifid 会问
+  `0xc02c6938`（SIOCGIFMEDIA）并得到 802.11 media；但 wifid 还要在 IOKit 里 match 到一个
+  `IO80211Interface` 实例才认为“有 Wi-Fi 驱动”，否则 Settings/MobileWiFi 判为无 Wi-Fi 能力
+- 下一步（未做）：在内核里发布一个最小的 `IO80211Interface` IOService（C++，挂到现有 IOKit 树，
+  带 IO80211InterfaceRole/ProductType 等属性），先验证 wifid 是否不再报 No matching driver、Settings
+  是否恢复；如果它还要 user client，再补 IO80211APIUserClient 的方法表
