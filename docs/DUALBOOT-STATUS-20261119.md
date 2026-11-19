@@ -121,3 +121,21 @@
   - `com.apple.wifi.manager` 在 launchd 里是 `U`（未注册），`com.apple.private.corewifi.internal-xpc` 是 `M`
   - 下一步：确定 Settings/MobileWiFi 的 Wi‑Fi 能力判断来自哪里（MobileGestalt 的 wifi 能力键、还是
     CoreWiFi 对 wifid 的 XPC 查询结果），再决定补哪一层
+
+## 为什么 iOS18 待机发烫（2026-11-20 07:4x 实测）
+
+- 内核/GPU 不是热源：GPU 日志显示 99% 时间在最低档（level 1, 257 MHz），busy 0%
+- 真正原因在用户态：
+  - `xpcproxy`/`fileproviderd`/`bluetoothd`/`wifip2pd` 等守护进程反复崩溃重启（一次会话里 xpcproxy 5,646 次、
+    fileproviderd 1,460、wifip2pd 1,457、bluetoothd 1,451）
+  - `audiomxd` 空转，把 `launchd` 拉到 ~88-90% CPU（还有 21% 自己），整机因此持续发热
+- 处理（`launchctl disable`，写在根卷 `/var/db/com.apple.xpc.launchd/disabled.plist`，重启后仍生效）：
+  `com.apple.audiomxd`、`com.apple.corespeechd`、`com.apple.siriactionsd`、
+  `com.apple.speechmodeltrainingd`、`com.apple.bluetoothd`、`com.apple.bluetoothuserd`、
+  `com.apple.BluetoothUIService`、`com.apple.siri.acousticsignature`、`com.apple.wifip2pd`、
+  `com.apple.FileProvider`、`com.apple.spaceattributiond`、`com.apple.WebBookmarks.webbookmarksd`、
+  `com.apple.MTLAssetUpgraderD`、`com.apple.modelmanagerd`、`com.apple.mobile.NRDUpdated`
+- 效果：exec 速率 ~34/30s → ~12/60s；launchd 从 88% 降到 ~1%；整机空闲 CPU 只有几个百分点
+- Wi‑Fi 不受影响：`wifid` 在跑、`en0` 仍是 802.11、射频保持 up
+- 这些服务本来就是崩溃状态（音频没有驱动、蓝牙没有传输、P2P 无对端），关掉不损失现有可用功能；
+  以后要恢复某个服务：`launchctl enable system/<label>`（或 `user/501/<label>`）后重启即可
