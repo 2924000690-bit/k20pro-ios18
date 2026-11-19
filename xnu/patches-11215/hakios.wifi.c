@@ -174,6 +174,8 @@
 #include <vm/vm_kern.h>
 #include <vm/vm_kern_xnu.h>	/* kmem_alloc() with KMA_* flags: moved out of vm_kern.h after xnu-8796 */
 
+extern void hakios_io80211_stub_start(void);   /* iokit/Kernel/arm/RaphaelIO80211.cpp */
+
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
 extern vm_offset_t ml_io_map_wcomb(vm_offset_t phys_addr, vm_size_t size);
 extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys_addr, vm_size_t size, unsigned int flags);
@@ -5515,6 +5517,7 @@ whole_thread(__unused void *parameter, __unused wait_result_t result)
 	if (failed == 0) {
 		tell("wifi: THE RADIO IS UP, %llu.%llu s after the kernel began on it\n", (now_us() - began) / 1000000,
 		    (now_us() - began) / 100000 % 10);
+		hakios_io80211_stub_start();
 		join_given(began);
 	} else {
 		tell("wifi: THE RADIO DID NOT COME UP: step %u failed, %llu s in. The last of what was said on the way:\n", failed,
