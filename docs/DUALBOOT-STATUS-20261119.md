@@ -96,3 +96,15 @@
 - 下一步（未做）：在内核里发布一个最小的 `IO80211Interface` IOService（C++，挂到现有 IOKit 树，
   带 IO80211InterfaceRole/ProductType 等属性），先验证 wifid 是否不再报 No matching driver、Settings
   是否恢复；如果它还要 user client，再补 IO80211APIUserClient 的方法表
+
+## IO80211Interface stub: published, but wifid still says "No matching driver"（2026-11-20 02:0x）
+
+- 内核加入 `raphael_io80211_stub.cpp`（`wifi_iokit=1` 才启用），真机日志出现
+  `HAKIOS IO80211: IO80211Interface published (wifi_iokit=1)`
+- 但手动跑 `/usr/sbin/wifid` 仍然打印 `PPM Error:No matching driver found`，
+  `com.apple.wifi.manager` 在 launchd 里仍是 `U`（未注册），Settings 面板依旧灰
+- 说明：仅发布一个类名为 `IO80211Interface` 的 IOService 不够；wifid 匹配的“driver”要么带属性过滤
+  （IO80211InterfaceRole 等），要么是另一个类（AppleWiFi/IO80211Controller），要么要求 IOServiceOpen
+  的 user client。下一步需要从 wifid/IO80211.framework 里确认它的 matching dictionary，
+  再决定 stub 挂哪个类、暴露什么属性/用户客户端
+- 构建：run 44579835862 成功；镜像 `wifi-test/boot-ios18-iokit.img`
