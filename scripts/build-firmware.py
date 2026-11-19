@@ -62,7 +62,13 @@ if cfg_src.is_file() and not cfg_dst.is_file():
     print(f"firmware: created {cfg_dst.name}")
 
 board = tomllib.loads((ROOT / "board.toml").read_text())
-ctx = types.SimpleNamespace(
+class Context(types.SimpleNamespace):
+    """The bits of UniXNU's build context this driver stands in for."""
+    def option(self, key, env=None):
+        return os.environ.get(env) if env else None
+
+
+ctx = Context(
     board=board,
     tree=TREE,
     work=WORK,
@@ -70,6 +76,7 @@ ctx = types.SimpleNamespace(
     jobs=8,
     args=types.SimpleNamespace(skip_preflight=False),
     uefi=UEFI,
+    device=os.environ.get("FW_DEVICE", "xiaomi-raphael"),
 )
 # DEBUG builds enable EDK II ASSERTs; a driver that trips one dead-loops
 # (black screen until the bootloader watchdog resets the phone).
