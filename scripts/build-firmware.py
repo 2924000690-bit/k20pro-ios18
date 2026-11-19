@@ -77,6 +77,10 @@ ctx = Context(
     args=types.SimpleNamespace(skip_preflight=False),
     uefi=UEFI,
     device=os.environ.get("FW_DEVICE", "xiaomi-raphael"),
+    schema_version=1,
+    config={},
+    config_path=Path("/dev/null"),
+    config_name=None,
 )
 # DEBUG builds enable EDK II ASSERTs; a driver that trips one dead-loops
 # (black screen until the bootloader watchdog resets the phone).
