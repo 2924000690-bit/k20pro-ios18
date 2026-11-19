@@ -134,6 +134,8 @@ jobs:
           # a-time reservation (Mu's AllocatePages refuses multi-entry ranges)
           # and a below-4G first pass. The diag hooks are not in this branch.
           git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-raphael-sync.patch
+          # The iOS entry draws the Apple mark on the framebuffer; Android keeps the logo partition.
+          git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-apple-logo.patch
           # Bring-up diagnostics: after a failed entry UniXNU shows DarwinBoot's
           # failing step, the UEFI free-memory runs and its last log lines.
           git -C unixnu apply ../patches/unixnu-diag.patch
