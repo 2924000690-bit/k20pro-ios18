@@ -40,6 +40,47 @@ IO80211Interface::start(IOService *provider)
 	return true;
 }
 
+
+/*
+ * wifid's "PPM" path also names AppleWiFi and IO80211Controller; publishing all
+ * three makes the experiment tell which one its matching dictionary wants.
+ */
+class AppleWiFi : public IOService {
+	OSDeclareDefaultStructors(AppleWiFi)
+public:
+	bool start(IOService *provider) override;
+};
+OSDefineMetaClassAndStructors(AppleWiFi, IOService)
+bool
+AppleWiFi::start(IOService *provider)
+{
+	if (!IOService::start(provider)) {
+		return false;
+	}
+	setProperty("IOClass", "AppleWiFi");
+	setProperty("IOModel", "AppleWiFi");
+	registerService();
+	return true;
+}
+
+class IO80211Controller : public IOService {
+	OSDeclareDefaultStructors(IO80211Controller)
+public:
+	bool start(IOService *provider) override;
+};
+OSDefineMetaClassAndStructors(IO80211Controller, IOService)
+bool
+IO80211Controller::start(IOService *provider)
+{
+	if (!IOService::start(provider)) {
+		return false;
+	}
+	setProperty("IOClass", "IO80211Controller");
+	setProperty("IO80211ControllerRole", "Station");
+	registerService();
+	return true;
+}
+
 static IO80211Interface *gIO80211Stub;
 
 extern "C" void
@@ -76,6 +117,16 @@ hakios_io80211_stub_start(void)
 	}
 	gIO80211Stub->attach(parent);
 	gIO80211Stub->start(parent);
-	printf("HAKIOS IO80211: IO80211Interface published (wifi_iokit=1)\n");
+	AppleWiFi *wifi = new AppleWiFi;
+	if (wifi != NULL && wifi->init()) {
+		wifi->attach(parent);
+		wifi->start(parent);
+	}
+	IO80211Controller *controller = new IO80211Controller;
+	if (controller != NULL && controller->init()) {
+		controller->attach(parent);
+		controller->start(parent);
+	}
+	printf("HAKIOS IO80211: IO80211Interface/AppleWiFi/IO80211Controller published (wifi_iokit=1)\n");
 	parent->release();
 }
