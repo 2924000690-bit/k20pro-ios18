@@ -66,3 +66,21 @@
   中断的 106 MiB 固件推送（ssh broken pipe）后处于脏/损坏状态，而不是 recovery 模式本身
 - 已生成 AVB 封装版 `wifi-test/boot-ios18-darwin-recovery.img`（64 MiB，AVBf 尾），待根卷干净后再验证 recovery 启动
 - 待办：重刷 `darwin` → RAM 启动确认 → 用单文件 tar + sha256 校验的方式重推 Wi-Fi 固件 → 再验证 recovery 持久入口
+
+## Wi-Fi on the installed iOS18 (2026-11-20 清晨)
+
+- 固件已放进根卷 `/usr/local/share/firmware/wifi`（modem.mdt/b00..b31、wlanmdsp.mbn、firmware-5.bin、
+  bd_f11cn.bin、0-rmtfs-ram、四项 NV），`kern.sweet_wifi_step = 255`
+- `wifi_lx=2 wifi_scan=1` 实测：`THE SCAN HEARD 14 NETWORKS`（12×2.4G + 2×5G），射频/驱动/站点正常
+- `wifid` 的 LaunchDaemon 有 `_LimitLoadToDeviceTree = ["wlan","marconi-wifi"]`；ADT 里追加一个 `/wlan`
+  节点（字节级追加到根节点末尾，保留其余字节）后，launchd 开机自动加载 wifid，无需手动 bootstrap
+  - 注意：用 mkadt.py 重新生成 ADT 会因 random-seed 之外的结构差异触发 DarwinBoot `EFI_COMPROMISED_DATA`；
+    可用「解析原 ADT → 在末尾追加节点 → 更新父节点 children 计数」的方式保持其它字节不变
+  - 节点放在 `/arm-io` 下与放在根下，wifid 都能启动，但 Settings 的 Wi-Fi 面板仍为灰色
+- wifid 与驱动已通信：`net: en0 is asked 0xc02c6938 by wifid`、`apple80211: the station says: power, 1`
+- 剩余卡点：iOS 18 的 Settings/MobileWiFi 能力判断（不是 SIOCSA80211 这条 ioctl 链）；下一步查
+  CoreWiFi/MobileWiFi 期望的 IO80211Interface / 能力位（系统框架在 dyld shared cache，不在 .framework 目录）
+- 亮度：熄屏再亮时 `blSet(true)` 恢复的是面板上次 WLED 字节（`fBlRaw`），不是 iOS 亮度等级 → 需在
+  `SweetFramebuffer.cpp` 记录 iOS 设置的等级并在唤醒时重放
+- 开机图：`logo` 与 `splash` 分区是 Android 与 iOS 共用的 ABL 开机图（已恢复官方 `logo.img`）；
+  UniXNU 阶段的绿色是它自带的菜单 UI，白苹果需要在 UEFI/DarwinBoot 或内核早期 FB 里画
