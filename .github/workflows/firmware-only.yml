@@ -128,16 +128,15 @@ jobs:
           # Same story for the submodule list: `git submodule update --init --
           # <paths>` aborts on the first path this revision does not have.
           python3 scripts/prune_submodules.py uefi board.toml
-          # drivers/DarwinBoot is a SUBMODULE OF UniXNU, not of the Aloha tree
-          git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-guacamole.patch
+          # drivers/DarwinBoot is a SUBMODULE OF UniXNU, not of the Aloha tree.
+          # The four bring-up patches are rebased onto this DarwinBoot as one:
+          # 32 MiB window alignment (4 KiB/16 KiB page builds), one-map-entry-at-
+          # a-time reservation (Mu's AllocatePages refuses multi-entry ranges)
+          # and a below-4G first pass. The diag hooks are not in this branch.
+          git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-raphael-sync.patch
           # Bring-up diagnostics: after a failed entry UniXNU shows DarwinBoot's
           # failing step, the UEFI free-memory runs and its last log lines.
           git -C unixnu apply ../patches/unixnu-diag.patch
-          git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-diag.patch
-          # Reserve the kernel window one memory-map entry at a time: Mu's
-          # AllocatePages refuses a range spanning several free entries.
-          git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-window-split.patch
-          git -C unixnu/drivers/DarwinBoot apply ../../../patches/darwinboot-window-below4g.patch
           echo "diagnostic patches applied"
           sed -i 's|^TARGET_DEVICE = .*|TARGET_DEVICE = "${{ inputs.device }}"|' board.toml
           grep -n 'TARGET_DEVICE' board.toml
