@@ -147,26 +147,6 @@ index 71aa4b8..a4ab4d9 100644
    CHAR16         *SourceLabel;
    CHAR8          Error[160];       ///< First config/kit error, empty if none.
    CHAR8          Notice[96];       ///< Note for the menu that is not an error, empty if none.
-diff --git a/package/UniXNUPkg/Library/UniXNULib/Main.c b/package/UniXNUPkg/Library/UniXNULib/Main.c
-index c1d76fe..76dc7a6 100644
---- a/package/UniXNUPkg/Library/UniXNULib/Main.c
-+++ b/package/UniXNUPkg/Library/UniXNULib/Main.c
-@@ -76,11 +76,11 @@ UniXNURun (
-     );
- 
-   //
--  // Started straight from BDS, storage may not be connected yet.
-+  // Started straight from BDS, storage may not be connected yet. Do this even
-+  // for the application host: the payload block device is installed by a DXE
-+  // driver and needs the FAT driver bound before the volume scan.
-   //
--  if (Host == UniXNUHostFirmware) {
--    UniXNUConnectAll ();
--  }
-+  UniXNUConnectAll ();
- 
-   UniXNUConfigLoad (ImageHandle, &Config);
-   UniXNULog (
 diff --git a/package/UniXNUPkg/Library/UniXNULib/UniXNULib.inf b/package/UniXNUPkg/Library/UniXNULib/UniXNULib.inf
 index bfdb3b3..e9b9ab2 100644
 --- a/package/UniXNUPkg/Library/UniXNULib/UniXNULib.inf
@@ -227,17 +207,19 @@ index d2aa766..b532d35 100644
  
  
 diff --git a/scripts/unixnu/firmware.py b/scripts/unixnu/firmware.py
-index 5388f78..998144f 100644
 --- a/scripts/unixnu/firmware.py
 +++ b/scripts/unixnu/firmware.py
-@@ -28,12 +28,12 @@ def build(ctx, modules, uefi, edk2, target='DEBUG'):
+@@ -35,15 +35,15 @@
      if fw.get('submodules'):
          # Upstream Mu-Silicium submodules the board needs (Mu_Basecore is provided separately).
          log('firmware: initializing submodules of the Mu-Silicium checkout')
 -        run(['git', '-C', uefi, 'submodule', 'update', '--init', '--depth', '1', '--', *fw['submodules']])
 +        run(['git', '-C', uefi, 'submodule', 'update', '--init', '--', *fw['submodules']])
-     for script in [] if ctx.args.skip_preflight else fw.get('preflight', []):
-         run(['python3', ctx.tree / script], cwd=ctx.tree, log_file=ctx.logs / 'firmware-preflight.log')
+     for entry in [] if ctx.args.skip_preflight else fw.get('preflight', []):
+         parts = shlex.split(entry)
+         script = Path(parts[0]) if Path(parts[0]).is_absolute() else ctx.tree / parts[0]
+         run(['python3', script, *parts[1:]], cwd=ctx.tree,
+             env=dict(os.environ, UNIXNU_UEFI=str(uefi), UNIXNU_DEVICE=str(ctx.device)), log_file=ctx.logs / 'firmware-preflight.log')
      defines = {'FD_BASE': hex(base), 'FD_SIZE': hex(size), 'FD_BLOCKS': str(size // 0x1000)}
 -    defines.update({key: str(value) for key, value in fw.get('defines', {}).items()})
      fields = {'uefi': str(uefi), 'edk2': str(edk2), 'tree': str(ctx.tree)}
