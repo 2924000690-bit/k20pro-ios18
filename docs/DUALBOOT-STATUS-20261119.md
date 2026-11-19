@@ -108,3 +108,16 @@
   的 user client。下一步需要从 wifid/IO80211.framework 里确认它的 matching dictionary，
   再决定 stub 挂哪个类、暴露什么属性/用户客户端
 - 构建：run 44579835862 成功；镜像 `wifi-test/boot-ios18-iokit.img`
+
+## 更正：`PPM Error: No matching driver` 是 ApplePPM 的，不是 Wi-Fi（2026-11-20 02:2x）
+
+- 在 dyld shared cache 里定位到该字符串来自 `/usr/lib/libPPM.dylib`（ApplePPM，基带/Wi‑Fi 发射功率与
+  thermal admission 的客户端），它要 match 的是 PPM 的 IOKit 用户客户端，和 Wi‑Fi 是否可用无关
+- 所以 `IO80211Interface`/`AppleWiFi`/`IO80211Controller` 三个 stub 都已发布（真机日志确认
+  `HAKIOS IO80211: IO80211Interface/AppleWiFi/IO80211Controller published (wifi_iokit=1)`），
+  wifid 仍打印那行 PPM 错误是**预期**的，不能拿它当 Wi‑Fi 判断依据
+- 现在仍要回答的问题是：Settings 的 Wi‑Fi 面板为什么还是灰的。已知：
+  - wifid 在跑（`launchctl list` 有），会向驱动发 SIOCGA80211（power）和 SIOCGIFMEDIA（802.11 media）
+  - `com.apple.wifi.manager` 在 launchd 里是 `U`（未注册），`com.apple.private.corewifi.internal-xpc` 是 `M`
+  - 下一步：确定 Settings/MobileWiFi 的 Wi‑Fi 能力判断来自哪里（MobileGestalt 的 wifi 能力键、还是
+    CoreWiFi 对 wifid 的 XPC 查询结果），再决定补哪一层
