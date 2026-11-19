@@ -67,7 +67,7 @@ hakios_io80211_stub_start(void)
 		parent->release();
 		return;
 	}
-	if (!gIO80211Stub->init(parent)) {
+	if (!gIO80211Stub->init()) {
 		printf("HAKIOS IO80211: init failed\n");
 		gIO80211Stub->release();
 		gIO80211Stub = NULL;
