@@ -11,6 +11,7 @@
  * Off unless wifi_iokit=1, so a normal boot is untouched.
  */
 #include <IOKit/IOService.h>
+#include <IOKit/IOUserClient.h>
 #include <IOKit/IOLib.h>
 #include <pexpert/pexpert.h>
 #include <sys/systm.h>
@@ -82,6 +83,57 @@ IO80211Controller::start(IOService *provider)
 }
 
 
+
+/*
+ * A logging user client: IO80211.framework opens one on the interface and drives
+ * Apple80211 through it. Answering every selector and printing the numbers turns
+ * the next boot into a map of the method table, instead of guessing it.
+ */
+class IO80211UserClient : public IOUserClient {
+	OSDeclareDefaultStructors(IO80211UserClient)
+public:
+	bool initWithTask(task_t owningTask, void *securityToken, UInt32 type,
+	    OSDictionary *properties) APPLE_KEXT_OVERRIDE;
+	IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *arguments,
+	    IOExternalMethodDispatch *dispatch, OSObject *target, void *reference) APPLE_KEXT_OVERRIDE;
+	IOReturn clientClose(void) APPLE_KEXT_OVERRIDE;
+};
+OSDefineMetaClassAndStructors(IO80211UserClient, IOUserClient)
+
+bool
+IO80211UserClient::initWithTask(task_t owningTask, void *securityToken, UInt32 type,
+    OSDictionary *properties)
+{
+	if (!IOUserClient::initWithTask(owningTask, securityToken, type, properties)) {
+		return false;
+	}
+	printf("HAKIOS IO80211: user client opened, type %u\n", (unsigned)type);
+	return true;
+}
+
+IOReturn
+IO80211UserClient::externalMethod(uint32_t selector, IOExternalMethodArguments *arguments,
+    IOExternalMethodDispatch *dispatch, OSObject *target, void *reference)
+{
+	static unsigned said;
+	if (said < 200) {
+		said++;
+		printf("HAKIOS IO80211: selector %u, scalars in %u out %u, struct in %u out %u\n",
+		    (unsigned)selector,
+		    (unsigned)(arguments ? arguments->scalarInputCount : 0),
+		    (unsigned)(arguments ? arguments->scalarOutputCount : 0),
+		    (unsigned)(arguments ? arguments->structureInputSize : 0),
+		    (unsigned)(arguments ? arguments->structureOutputSize : 0));
+	}
+	return kIOReturnSuccess;
+}
+
+IOReturn
+IO80211UserClient::clientClose(void)
+{
+	return kIOReturnSuccess;
+}
+
 /*
  * iOS 18's wifid matches this one, not the older classes: its log line is
  * "IOServiceAddMatchingNotification IO80211SkywalkInterface failed" when the
@@ -92,8 +144,34 @@ class IO80211SkywalkInterface : public IOService {
 	OSDeclareDefaultStructors(IO80211SkywalkInterface)
 public:
 	bool start(IOService *provider) override;
+	IOReturn newUserClient(task_t owningTask, void *securityID, UInt32 type,
+	    OSDictionary *properties, IOUserClient **handler) APPLE_KEXT_OVERRIDE;
 };
 OSDefineMetaClassAndStructors(IO80211SkywalkInterface, IOService)
+IOReturn
+IO80211SkywalkInterface::newUserClient(task_t owningTask, void *securityID, UInt32 type,
+    OSDictionary *properties, IOUserClient **handler)
+{
+	IO80211UserClient *client = new IO80211UserClient;
+	if (client == NULL) {
+		return kIOReturnNoMemory;
+	}
+	if (!client->initWithTask(owningTask, securityID, type, properties)) {
+		client->release();
+		return kIOReturnError;
+	}
+	if (!client->attach(this)) {
+		client->release();
+		return kIOReturnError;
+	}
+	if (!client->start(this)) {
+		client->detach(this);
+		client->release();
+		return kIOReturnError;
+	}
+	*handler = client;
+	return kIOReturnSuccess;
+}
 bool
 IO80211SkywalkInterface::start(IOService *provider)
 {
