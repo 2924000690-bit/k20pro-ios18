@@ -154,3 +154,17 @@
 - 已在内核 stub 里补上 `IO80211SkywalkInterface`（带 `IOInterfaceName=en0`、Role/ProductType/RadioMODE 属性），
   仍由 `wifi_iokit=1` 控制
 - 等手机回来验证：看 wifid 是否不再报该 match 失败、`com.apple.wifi.manager` 是否从 `U` 变 `M`、Settings 是否恢复
+
+## 两个构建已就绪（2026-11-20 08:1x）
+
+- 内核（Skywalk stub）：run 44642394617 成功
+  - 镜像：`wifi-test/boot-ios18-skywalk.img`（`052c67c4…`，53,846,016 B）
+  - 内含 `IO80211SkywalkInterface` + `IO80211InterfaceRole=Infrastructure` + `AppleWLANDriver` + `AppleSunriseWLAN`
+  - 用法：`fastboot boot boot-ios18-skywalk.img`，或刷进 `recovery`
+- 固件（白苹果）：run 44642855675 成功
+  - 产物：`wifi-test/fw-logo/boot-raphael-full-RELEASE.img/boot-raphael.img`（70,627,328 B，含 UniXNU + 带 Apple logo 的 DarwinBoot）
+  - 这块只在 iOS 入口画 Apple，Android 入口仍显示官方小米 logo
+- 手机回来后验证顺序：
+  1. `fastboot boot boot-ios18-skywalk.img` → 看 wifid 是否仍报 Skywalk match 失败、`com.apple.wifi.manager` 是否变 `M`
+  2. 刷 `recovery` 成 skywalk 镜像（或先用 RAM boot）
+  3. `fastboot boot boot-raphael.img`（或刷 boot）验证白苹果
