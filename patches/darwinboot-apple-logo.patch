@@ -258,11 +258,59 @@ diff --git a/DarwinBootPkg/Driver/DarwinBoot.c b/DarwinBootPkg/Driver/DarwinBoot
  
  #define WINDOW_SIZE  SIZE_256MB
  #define BLOCK_SIZE   SIZE_2MB
-@@ -459,6 +460,7 @@
-   UINT32     Version;
-   UINTN      Attempt;
+@@ -819,6 +820,47 @@
+   Inputs[DARWIN_INPUT_PAYLOAD_DISK].State |= DARWIN_INPUT_VERIFIED;
+ }
  
++
++// The iOS entry's splash: black the screen and draw the Apple mark, so the phone shows Apple while XNU starts
++// and the Android entry keeps the Xiaomi logo in the logo partition. Drawn with GOP Blt, before boot services go.
++STATIC
++VOID
++DrawAppleLogo (VOID)
++{
++  EFI_GRAPHICS_OUTPUT_PROTOCOL  *Gop;
++  EFI_STATUS                    Status;
++  UINT32                        *Row;
++  UINTN                         Width;
++  UINTN                         Height;
++  UINTN                         X;
++  UINTN                         Y;
++  UINTN                         X0;
++  UINTN                         Y0;
++
++  Status = gBS->LocateProtocol (&gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop);
++  if (EFI_ERROR (Status) || (Gop == NULL) || (Gop->Mode == NULL) || (Gop->Mode->Info == NULL)) { return; }
++  Width = Gop->Mode->Info->HorizontalResolution;
++  Height = Gop->Mode->Info->VerticalResolution;
++  if ((Width == 0) || (Height == 0)) { return; }
++  Row = AllocatePool (Width * sizeof (UINT32));
++  if (Row == NULL) { return; }
++  ZeroMem (Row, Width * sizeof (UINT32));
++  for (Y = 0; Y < Height; Y++) {
++    Gop->Blt (Gop, Row, EfiBltBufferToVideo, 0, 0, 0, Y, Width, 1, 0);
++  }
++  if ((Width >= APPLE_LOGO_WIDTH) && (Height >= APPLE_LOGO_HEIGHT)) {
++    X0 = (Width - APPLE_LOGO_WIDTH) / 2;
++    Y0 = (Height - APPLE_LOGO_HEIGHT) / 2;
++    for (Y = 0; Y < APPLE_LOGO_HEIGHT; Y++) {
++      for (X = 0; X < APPLE_LOGO_WIDTH; X++) {
++        Row[X] = ((mAppleLogo[Y][X / 8] >> (7 - (X & 7))) & 1) ? 0x00ffffff : 0x00000000;
++      }
++      Gop->Blt (Gop, Row, EfiBltBufferToVideo, 0, 0, X0, Y0 + Y, APPLE_LOGO_WIDTH, 1, 0);
++    }
++  }
++  FreePool (Row);
++}
++
+ STATIC
+ EFI_STATUS
+ EFIAPI
+@@ -1162,6 +1204,7 @@
+           READ_SYSREG (id_aa64mmfr0_el1) & 0xF, (((READ_SYSREG (id_aa64mmfr0_el1) >> 28) & 0xF) == 0xF) ? "NOT supported" : "supported"));
+   DEBUG ((DEBUG_ERROR, "ID_AA64PFR0_EL1  0x%lx\n", READ_SYSREG (id_aa64pfr0_el1)));
+   DEBUG ((DEBUG_ERROR, "\nExiting boot services. A green bar across the top\nmarks the loader handoff before the kernel branch.\n"));
 +  DrawAppleLogo ();
    for (Attempt = 0; Attempt < 3; Attempt++) {
-     *Size = *Capacity;
-     Status = gBS->GetMemoryMap (Size, *Map, Key, Stride, &Version);
+     MapSize = Capacity;
+     Status = gBS->GetMemoryMap (&MapSize, Map, &Key, &Stride, &Version);
