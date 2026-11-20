@@ -1,5 +1,5 @@
 diff --git a/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c b/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c
-index be884abd..5acf6e1e 100644
+index be884abd..f285f35c 100644
 --- a/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c
 +++ b/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c
 @@ -36,6 +36,9 @@
@@ -192,7 +192,17 @@ index be884abd..5acf6e1e 100644
    //  if (KeyPressed == SCAN_UP)
    //    BootIntoRecovery = TRUE;
    //  if (KeyPressed == SCAN_ESC)
-@@ -305,7 +472,18 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
+@@ -239,7 +406,8 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
+ 
+   switch (BootReason) {
+   case FASTBOOT_MODE:
+-    BootIntoFastboot = TRUE;
++    /* Chainloaded from the UniXNU menu the bootloader's fastboot reason is
++     * not ours: keep going to the normal boot path. */
+     break;
+   case RECOVERY_MODE:
+     BootIntoRecovery = TRUE;
+@@ -305,7 +473,18 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
      Info.MultiSlotBoot = MultiSlotBoot;
      Info.BootIntoRecovery = BootIntoRecovery;
      Info.BootReasonAlarm = BootReasonAlarm;
