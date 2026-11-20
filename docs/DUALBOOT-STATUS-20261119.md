@@ -139,3 +139,18 @@
 - Wi‑Fi 不受影响：`wifid` 在跑、`en0` 仍是 802.11、射频保持 up
 - 这些服务本来就是崩溃状态（音频没有驱动、蓝牙没有传输、P2P 无对端），关掉不损失现有可用功能；
   以后要恢复某个服务：`launchctl enable system/<label>`（或 `user/501/<label>`）后重启即可
+
+## 找到 wifid 真正 match 的类：IO80211SkywalkInterface（2026-11-20 08:0x，离线分析）
+
+- 用 7z 从 `ios18-root-quiet/root.img` 解出 dyld shared cache（68 个文件，4.0 GB），写了缓存解析脚本按
+  `imagesText` 表定位镜像，抽出三个框架的 Mach-O 段：
+  - `CoreWiFi`（1,558,752 B __TEXT）、`MobileWiFi`（231,296）、`IO80211`（363,200）
+- `MobileWiFi` 里有 `com.apple.wifi.manager.available`、`__WiFiManagerClientAvailableCallback`：
+  Settings 的 Wi‑Fi 面板依赖 manager 的 availability 通知
+- `wifid` 的字符串里有一条关键日志：
+  `IOServiceAddMatchingNotification IO80211SkywalkInterface failed`
+  —— iOS 18 的 Wi‑Fi 栈要 match 的是 **IO80211SkywalkInterface**，不是我们之前发布的老类
+  `IO80211Interface/AppleWiFi/IO80211Controller`（那三个是 iOS 16 及更早的路径，PPM 报错则是 ApplePPM 的，已排除）
+- 已在内核 stub 里补上 `IO80211SkywalkInterface`（带 `IOInterfaceName=en0`、Role/ProductType/RadioMODE 属性），
+  仍由 `wifi_iokit=1` 控制
+- 等手机回来验证：看 wifid 是否不再报该 match 失败、`com.apple.wifi.manager` 是否从 `U` 变 `M`、Settings 是否恢复
