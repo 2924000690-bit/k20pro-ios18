@@ -265,6 +265,22 @@ jobs:
           path: uefi/Build/SurfaceDuo1Pkg/${{ inputs.target }}_CLANGPDB/FV/SM8150_EFI.fd
           if-no-files-found: error
 
+      - name: Collect the firmware's loader apps
+        if: always()
+        run: |
+          mkdir -p out/loaders
+          find uefi/Build -iname 'LinuxLoader*.efi' -exec cp -v {} out/loaders/ \; 2>/dev/null || true
+          find uefi -iname 'LinuxLoader*.inf' | head -5 || true
+          ls -l out/loaders || true
+
+      - name: Upload loader apps
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uefi-loaders
+          path: out/loaders
+          if-no-files-found: warn
+
       - name: Build the FAT payload (kernel + raphael ADT)
         run: python3 scripts/build-payload.py
 
