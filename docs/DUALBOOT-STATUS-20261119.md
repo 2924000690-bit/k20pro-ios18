@@ -168,3 +168,14 @@
   1. `fastboot boot boot-ios18-skywalk.img` → 看 wifid 是否仍报 Skywalk match 失败、`com.apple.wifi.manager` 是否变 `M`
   2. 刷 `recovery` 成 skywalk 镜像（或先用 RAM boot）
   3. `fastboot boot boot-raphael.img`（或刷 boot）验证白苹果
+
+## 一键 Wi-Fi 探针（2026-11-20 08:3x）
+
+- 新镜像：`wifi-test/boot-ios18-skywalk-uc.img`（`6c583237…`）——Skywalk 接口 stub + Infrastructure 角色 +
+  会打印方法表 selectors 的 IO80211 user client（内核 run 44644366481 成功）
+- 一键脚本：`tools/raphael/wifi-test-run.sh [IMAGE]`
+  - RAM boot 默认用 skywalk-uc 镜像，自动开内核日志抓取、起 ECM、等 95 秒
+  - 汇报：`HAKIOS IO80211` 发布/selector 行、wifid 进程、`com.apple.wifi.manager` 状态、`en0` 链路
+- 判读标准：
+  - wifid 不再报 `IO80211SkywalkInterface failed`、`wifi.manager` 从 `U` 变 `M` → 接口层被接受
+  - 出现 `HAKIOS IO80211: selector N, scalars in/out ..., struct in/out ...` → 方法表可据此实现
