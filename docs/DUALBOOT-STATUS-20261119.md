@@ -179,3 +179,15 @@
 - 判读标准：
   - wifid 不再报 `IO80211SkywalkInterface failed`、`wifi.manager` 从 `U` 变 `M` → 接口层被接受
   - 出现 `HAKIOS IO80211: selector N, scalars in/out ..., struct in/out ...` → 方法表可据此实现
+
+## rec 刷完直接进 fastboot 的原因：少了 AVB 封装（2026-11-20 09:3x）
+
+- 我们先前刷进 `recovery` 的是普通 boot 镜像（`boot-ios18-iokit2.img`，53,846,016 B，**无 AVB footer**）
+- 这台机器的 `recovery` 必须是 **正好 64 MiB + 末尾 AVBf hash footer** 的镜像；一键包里的
+  `images/ios-recovery.img` 就是这么做出来的（installer 的 `build_recovery()`：
+  `avbtool add_hash_footer --partition_name recovery --partition_size 64MiB --algorithm NONE --hash_algorithm sha256`，
+  注释写明“a valid hash footer without a signing key is appropriate to the required unlocked BL”）
+- 缺 footer 时 ABL 不认这个 recovery，直接回落到 fastboot；而 `fastboot boot` 走的是另一条路，所以同样的镜像
+  RAM 启动一直正常，掩盖了这个问题
+- 已生成正确封装：`wifi-test/rec-ios18-skywalk-uc.img`（64,00,000 B 整、末尾 `AVBf`，内含 skywalk-uc 内核）
+- 手机接上后：`fastboot flash recovery rec-ios18-skywalk-uc.img`，再 电源+音量上（或 `fastboot reboot recovery`）
