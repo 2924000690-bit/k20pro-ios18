@@ -124,6 +124,9 @@ jobs:
           git -C uefi apply --reject --whitespace=nowarn ../patches/aloha-guacamole.patch \
             || echo "NOTE: some aloha hunks were rejected (see *.rej) - re-applying below"
           python3 scripts/fix_aloha_tree.py uefi
+          # LinuxLoader reads "partition=NAME" from its LoadOptions, so the UniXNU
+          # menu can boot the Android image kept in another partition.
+          git -C uefi apply ../patches/aloha-loader-partition.patch
           find uefi -name '*.rej' -exec sh -c 'echo "--- REJECTED: $1"; cat "$1"' _ {} \; || true
           # Same story for the submodule list: `git submodule update --init --
           # <paths>` aborts on the first path this revision does not have.

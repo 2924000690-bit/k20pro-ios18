@@ -1,0 +1,81 @@
+diff --git a/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c b/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c
+index be884abd..0cf50864 100644
+--- a/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c
++++ b/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c
+@@ -48,6 +48,39 @@
+ #include <Library/HypervisorMvCalls.h>
+ #include <Library/UpdateCmdLine.h>
+ 
++
++/* Read "partition=NAME" from the LoadOptions the caller (UniXNU) put on the
++ * image, so the same LinuxLoader can boot an Android image kept in another
++ * partition. NULL keeps the default boot/recovery choice. */
++CHAR8 *
++LinuxLoaderPartitionOverride (VOID)
++{
++  STATIC CHAR8              Name[32];
++  EFI_LOADED_IMAGE_PROTOCOL *Loaded = NULL;
++  CHAR16                    *Args;
++  CHAR16                    *Hit;
++  UINTN                     Index;
++
++  if (gImageHandle == NULL) {
++    return NULL;
++  }
++  if (EFI_ERROR (gBS->HandleProtocol (gImageHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Loaded)) ||
++      (Loaded == NULL) || (Loaded->LoadOptions == NULL)) {
++    return NULL;
++  }
++  Args = (CHAR16 *)Loaded->LoadOptions;
++  Hit = StrStr (Args, L"partition=");
++  if (Hit == NULL) {
++    return NULL;
++  }
++  Hit += StrLen (L"partition=");
++  for (Index = 0; (Index + 1 < sizeof (Name)) && (Hit[Index] != 0) && (Hit[Index] != L' ') && (Hit[Index] != L','); Index++) {
++    Name[Index] = (CHAR8)Hit[Index];
++  }
++  Name[Index] = '\0';
++  return (Index == 0) ? NULL : Name;
++}
++
+ #define MAX_APP_STR_LEN 64
+ #define MAX_NUM_FS 10
+ #define DEFAULT_STACK_CHK_GUARD 0xc0c0c0c0
+diff --git a/Platforms/QcomModulePkg/Include/Library/LinuxLoaderLib.h b/Platforms/QcomModulePkg/Include/Library/LinuxLoaderLib.h
+index 5bab90fc..e6463e57 100644
+--- a/Platforms/QcomModulePkg/Include/Library/LinuxLoaderLib.h
++++ b/Platforms/QcomModulePkg/Include/Library/LinuxLoaderLib.h
+@@ -194,4 +194,9 @@ WriteBlockToPartition (EFI_BLOCK_IO_PROTOCOL *BlockIo,
+                    IN UINT64 Offset,
+                    IN UINT64 Size,
+                    IN VOID *Image);
++
++/* The partition the Android boot image is read from, when the image was
++   started with "partition=NAME" in its LoadOptions (the UniXNU menu). */
++CHAR8 *LinuxLoaderPartitionOverride (VOID);
++
+ #endif
+diff --git a/Platforms/QcomModulePkg/Library/BootLib/BootLinux.c b/Platforms/QcomModulePkg/Library/BootLib/BootLinux.c
+index 2e3003a4..2a5fc2b4 100644
+--- a/Platforms/QcomModulePkg/Library/BootLib/BootLinux.c
++++ b/Platforms/QcomModulePkg/Library/BootLib/BootLinux.c
+@@ -940,11 +940,13 @@ BootLinux (BootInfo *Info)
+   Status = GetImage (Info,
+                      &BootParamlistPtr.ImageBuffer,
+                      (UINTN *)&BootParamlistPtr.ImageSize,
+-                     ((!Info->MultiSlotBoot ||
+-                        IsDynamicPartitionSupport ()) &&
+-                        (Recovery &&
+-                        !IsBuildUseRecoveryAsBoot ()))?
+-                        "recovery" : "boot");
++                     LinuxLoaderPartitionOverride () != NULL?
++                        LinuxLoaderPartitionOverride () :
++                        (((!Info->MultiSlotBoot ||
++                           IsDynamicPartitionSupport ()) &&
++                           (Recovery &&
++                           !IsBuildUseRecoveryAsBoot ()))?
++                           "recovery" : "boot"));
+   if (Status != EFI_SUCCESS ||
+       BootParamlistPtr.ImageBuffer == NULL ||
+       BootParamlistPtr.ImageSize <= 0) {
