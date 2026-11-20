@@ -102,10 +102,46 @@ IO80211SkywalkInterface::start(IOService *provider)
 	}
 	setProperty("IOClass", "IO80211SkywalkInterface");
 	setProperty("IOInterfaceName", "en0");
-	setProperty("IO80211InterfaceRole", "Station");
+	setProperty("IO80211InterfaceRole", "Infrastructure");
 	setProperty("IO80211InterfaceProductType", 0x10ULL, 32);
 	setProperty("IO80211InterfaceRadioMODE", 0x1ULL, 32);
-	setProperty("IOModel", "AppleWiFi");
+	registerService();
+	return true;
+}
+
+
+/* Apple's Skywalk Wi-Fi driver classes, named next to the interface roles in wifid. */
+class AppleWLANDriver : public IOService {
+	OSDeclareDefaultStructors(AppleWLANDriver)
+public:
+	bool start(IOService *provider) override;
+};
+OSDefineMetaClassAndStructors(AppleWLANDriver, IOService)
+bool
+AppleWLANDriver::start(IOService *provider)
+{
+	if (!IOService::start(provider)) {
+		return false;
+	}
+	setProperty("IOClass", "AppleWLANDriver");
+	setProperty("IO80211InterfaceRole", "Infrastructure");
+	registerService();
+	return true;
+}
+
+class AppleSunriseWLAN : public IOService {
+	OSDeclareDefaultStructors(AppleSunriseWLAN)
+public:
+	bool start(IOService *provider) override;
+};
+OSDefineMetaClassAndStructors(AppleSunriseWLAN, IOService)
+bool
+AppleSunriseWLAN::start(IOService *provider)
+{
+	if (!IOService::start(provider)) {
+		return false;
+	}
+	setProperty("IOClass", "AppleSunriseWLAN");
 	registerService();
 	return true;
 }
@@ -160,6 +196,16 @@ hakios_io80211_stub_start(void)
 	if (skywalk != NULL && skywalk->init()) {
 		skywalk->attach(parent);
 		skywalk->start(parent);
+	}
+	AppleWLANDriver *driver = new AppleWLANDriver;
+	if (driver != NULL && driver->init()) {
+		driver->attach(parent);
+		driver->start(parent);
+	}
+	AppleSunriseWLAN *sunrise = new AppleSunriseWLAN;
+	if (sunrise != NULL && sunrise->init()) {
+		sunrise->attach(parent);
+		sunrise->start(parent);
 	}
 	printf("HAKIOS IO80211: IO80211Interface/AppleWiFi/IO80211Controller/IO80211SkywalkInterface published (wifi_iokit=1)\n");
 	parent->release();
