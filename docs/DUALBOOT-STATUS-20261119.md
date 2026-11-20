@@ -191,3 +191,17 @@
   RAM 启动一直正常，掩盖了这个问题
 - 已生成正确封装：`wifi-test/rec-ios18-skywalk-uc.img`（64,00,000 B 整、末尾 `AVBf`，内含 skywalk-uc 内核）
 - 手机接上后：`fastboot flash recovery rec-ios18-skywalk-uc.img`，再 电源+音量上（或 `fastboot reboot recovery`）
+
+## 待机优化（2026-11-21 04:0x 实测）
+
+- 关闭前：`mobileassetd` 31% + `axassetsd` 22% + `healthd` 14% + `lsd` 11% + `trustd` 8% 空转，
+  exec churn ≈ 34/30s，整机发热、待机掉电快
+- 处理：`tools/ios-standby-tune.sh`（launchctl disable，持久化在 darwin 的 disabled.plist）
+  新增关闭：`accessibility.axassetsd`、`healthd`、`parsecd`、`analyticsagent`、`inputanalyticsd`、
+  `PerfPowerServices`、`nsurlsessiond`，并 kill 掉 `mobileassetd`（之前还有 audiomxd/蓝牙/Siri 等）
+- 关闭后实测：
+  - **exec churn = 0 次/30s**
+  - 空闲 CPU 最高的真实进程是 `geod` 2.6%、`SpringBoard` 1.3%（不含 SSH 自身）
+  - GPU 98% 时间停在最低档 257 MHz
+  - `disabled.plist` 1,487 B，重启仍生效
+- 仍保留：Wi‑Fi 射频/DSP（`wifi_keep=1`）、launchd、SpringBoard、backboardd、lsd、timed、mDNSResponder
