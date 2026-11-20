@@ -1,5 +1,5 @@
 diff --git a/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c b/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c
-index be884abd..3c40bd3d 100644
+index be884abd..92ab59d3 100644
 --- a/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c
 +++ b/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c
 @@ -36,6 +36,9 @@
@@ -152,6 +152,15 @@ index be884abd..3c40bd3d 100644
  #define MAX_APP_STR_LEN 64
  #define MAX_NUM_FS 10
  #define DEFAULT_STACK_CHK_GUARD 0xc0c0c0c0
+@@ -220,7 +356,7 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
+   //Status = GetKeyPress (&KeyPressed);
+   //if (Status == EFI_SUCCESS) {
+   //  if (KeyPressed == SCAN_DOWN)
+-      BootIntoFastboot = TRUE;
++  //    BootIntoFastboot = TRUE;   /* debug leftover: forced every boot into fastboot */
+   //  if (KeyPressed == SCAN_UP)
+   //    BootIntoRecovery = TRUE;
+   //  if (KeyPressed == SCAN_ESC)
 @@ -305,7 +441,18 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
      Info.MultiSlotBoot = MultiSlotBoot;
      Info.BootIntoRecovery = BootIntoRecovery;
