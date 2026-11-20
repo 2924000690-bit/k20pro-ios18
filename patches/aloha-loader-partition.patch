@@ -1,5 +1,5 @@
 diff --git a/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c b/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c
-index be884abd..92ab59d3 100644
+index be884abd..5acf6e1e 100644
 --- a/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c
 +++ b/Platforms/QcomModulePkg/Application/LinuxLoader/LinuxLoader.c
 @@ -36,6 +36,9 @@
@@ -12,7 +12,7 @@ index be884abd..92ab59d3 100644
  #include <Protocol/EFIDisplayUtils.h>
  #include <FastbootLib/FastbootMain.h>
  #include <Library/DeviceInfo.h>
-@@ -48,6 +51,139 @@
+@@ -48,6 +51,170 @@
  #include <Library/HypervisorMvCalls.h>
  #include <Library/UpdateCmdLine.h>
  
@@ -61,21 +61,20 @@ index be884abd..92ab59d3 100644
 +
 +STATIC
 +EFI_STATUS
-+LinuxLoaderTryPayloadFile (VOID **Buffer, UINTN *Size)
++LinuxLoaderReadFromVolume (EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs, VOID **Buffer, UINTN *Size)
 +{
-+  EFI_STATUS                       Status;
-+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs = NULL;
-+  EFI_FILE_PROTOCOL               *Root = NULL;
-+  EFI_FILE_PROTOCOL               *File = NULL;
-+  EFI_FILE_INFO                   *FileInfo = NULL;
-+  UINTN                            InfoSize = 0;
-+  UINTN                            ReadSize;
-+  STATIC CONST CHAR16             *Candidates[] = { L"\\Android.img", L"Android.img", L"/Android.img" };
-+  UINTN                            Index;
-+  BOOLEAN                          Opened = FALSE;
++  EFI_STATUS          Status;
++  EFI_FILE_PROTOCOL  *Root = NULL;
++  EFI_FILE_PROTOCOL  *File = NULL;
++  EFI_FILE_INFO      *FileInfo = NULL;
++  UINTN               InfoSize = 0;
++  UINTN               ReadSize;
++  STATIC CONST CHAR16 *Candidates[] = { L"\\Android.img", L"Android.img", L"/Android.img" };
++  UINTN               Index;
++  BOOLEAN             Opened = FALSE;
 +
 +  *Buffer = NULL; *Size = 0;
-+  Status = LinuxLoaderOpenPayloadVolume (&Fs, &Root);
++  Status = Fs->OpenVolume (Fs, &Root);
 +  if (EFI_ERROR (Status)) return Status;
 +  for (Index = 0; Index < ARRAY_SIZE (Candidates); Index++) {
 +    Status = Root->Open (Root, &File, (CHAR16 *)Candidates[Index], EFI_FILE_MODE_READ, 0);
@@ -99,6 +98,38 @@ index be884abd..92ab59d3 100644
 +  if (EFI_ERROR (Status)) { FreePages (*Buffer, EFI_SIZE_TO_PAGES (ReadSize)); *Buffer = NULL; return Status; }
 +  *Size = ReadSize;
 +  return EFI_SUCCESS;
++}
++
++STATIC
++EFI_STATUS
++LinuxLoaderTryPayloadFile (VOID **Buffer, UINTN *Size)
++{
++  EFI_STATUS                       Status;
++  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs = NULL;
++  EFI_FILE_PROTOCOL               *Root = NULL;
++  EFI_HANDLE                      *Handles = NULL;
++  UINTN                            Count = 0;
++  UINTN                            Index;
++
++  *Buffer = NULL; *Size = 0;
++  Status = LinuxLoaderOpenPayloadVolume (&Fs, &Root);
++  if (!EFI_ERROR (Status) && (Root != NULL)) {
++    Root->Close (Root);
++    Status = LinuxLoaderReadFromVolume (Fs, Buffer, Size);
++    if (!EFI_ERROR (Status)) return Status;
++  }
++  /* The payload image may not carry a volume handle of its own: try every
++   * SimpleFileSystem the firmware publishes. */
++  Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Handles);
++  if (EFI_ERROR (Status)) return Status;
++  for (Index = 0; Index < Count; Index++) {
++    Status = gBS->HandleProtocol (Handles[Index], &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
++    if (EFI_ERROR (Status)) continue;
++    Status = LinuxLoaderReadFromVolume (Fs, Buffer, Size);
++    if (!EFI_ERROR (Status)) { FreePool (Handles); return EFI_SUCCESS; }
++  }
++  FreePool (Handles);
++  return EFI_NOT_FOUND;
 +}
 +
 +/* The Android boot image read from a file in the payload volume ("file=PATH"). */
@@ -152,7 +183,7 @@ index be884abd..92ab59d3 100644
  #define MAX_APP_STR_LEN 64
  #define MAX_NUM_FS 10
  #define DEFAULT_STACK_CHK_GUARD 0xc0c0c0c0
-@@ -220,7 +356,7 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
+@@ -220,7 +387,7 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
    //Status = GetKeyPress (&KeyPressed);
    //if (Status == EFI_SUCCESS) {
    //  if (KeyPressed == SCAN_DOWN)
@@ -161,7 +192,7 @@ index be884abd..92ab59d3 100644
    //  if (KeyPressed == SCAN_UP)
    //    BootIntoRecovery = TRUE;
    //  if (KeyPressed == SCAN_ESC)
-@@ -305,7 +441,18 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
+@@ -305,7 +472,18 @@ LinuxLoaderEntry (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
      Info.MultiSlotBoot = MultiSlotBoot;
      Info.BootIntoRecovery = BootIntoRecovery;
      Info.BootReasonAlarm = BootReasonAlarm;
@@ -218,3 +249,16 @@ index 2e3003a4..2a5fc2b4 100644
    if (Status != EFI_SUCCESS ||
        BootParamlistPtr.ImageBuffer == NULL ||
        BootParamlistPtr.ImageSize <= 0) {
+diff --git a/Platforms/QcomModulePkg/Library/BootLib/FastbootMenu.c b/Platforms/QcomModulePkg/Library/BootLib/FastbootMenu.c
+index a7ffcb97..559a72aa 100644
+--- a/Platforms/QcomModulePkg/Library/BootLib/FastbootMenu.c
++++ b/Platforms/QcomModulePkg/Library/BootLib/FastbootMenu.c
+@@ -43,7 +43,7 @@
+ STATIC OPTION_MENU_INFO gMenuInfo;
+ 
+ STATIC MENU_MSG_INFO mFastbootOptionTitle[] = {
+-    {{"Start"},
++    {{"ZXCVB"},
+      BIG_FACTOR,
+      BGR_GREEN,
+      BGR_BLACK,
