@@ -81,6 +81,35 @@ IO80211Controller::start(IOService *provider)
 	return true;
 }
 
+
+/*
+ * iOS 18's wifid matches this one, not the older classes: its log line is
+ * "IOServiceAddMatchingNotification IO80211SkywalkInterface failed" when the
+ * class is absent. Publish it with the interface name so the ioctl-backed
+ * en0 is what it binds to.
+ */
+class IO80211SkywalkInterface : public IOService {
+	OSDeclareDefaultStructors(IO80211SkywalkInterface)
+public:
+	bool start(IOService *provider) override;
+};
+OSDefineMetaClassAndStructors(IO80211SkywalkInterface, IOService)
+bool
+IO80211SkywalkInterface::start(IOService *provider)
+{
+	if (!IOService::start(provider)) {
+		return false;
+	}
+	setProperty("IOClass", "IO80211SkywalkInterface");
+	setProperty("IOInterfaceName", "en0");
+	setProperty("IO80211InterfaceRole", "Station");
+	setProperty("IO80211InterfaceProductType", 0x10ULL, 32);
+	setProperty("IO80211InterfaceRadioMODE", 0x1ULL, 32);
+	setProperty("IOModel", "AppleWiFi");
+	registerService();
+	return true;
+}
+
 static IO80211Interface *gIO80211Stub;
 
 extern "C" void
@@ -127,6 +156,11 @@ hakios_io80211_stub_start(void)
 		controller->attach(parent);
 		controller->start(parent);
 	}
-	printf("HAKIOS IO80211: IO80211Interface/AppleWiFi/IO80211Controller published (wifi_iokit=1)\n");
+	IO80211SkywalkInterface *skywalk = new IO80211SkywalkInterface;
+	if (skywalk != NULL && skywalk->init()) {
+		skywalk->attach(parent);
+		skywalk->start(parent);
+	}
+	printf("HAKIOS IO80211: IO80211Interface/AppleWiFi/IO80211Controller/IO80211SkywalkInterface published (wifi_iokit=1)\n");
 	parent->release();
 }
